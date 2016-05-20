@@ -10,4 +10,5 @@ except Exception as details:
     sys.exit(0)
 
 server = conn.root
-server.interruptTimer()
+server.exposed_method_for_client_to_call(param1="I am the client. here is the value",
+                                                                   param2=10)
