@@ -19,11 +19,11 @@ class RaftService(rpyc.Service):
     state = FOLLOWER
     electionTimer = 0
     server_id = int(config_reader.getConfiguration("CurrentServer", "sid"))
-    total_servers = int(config_reader.getTotalNodes())
+    total_nodes = int(config_reader.getTotalNodes())
     timeoutLower = int(config_reader.electionTimeoutPeriod())  # Election timeout timer to be between, T to 2T (random)
-    peers = config_reader.get_peers(server_id, total_servers)
+    peers = config_reader.get_peers(server_id, total_nodes)
     term = 1
-    majority_criteria = 2
+    majority_criteria = int(config_reader.get_majority_criteria())
     interrupt = False
     leader_id = -1
     voted_for = -1
@@ -58,7 +58,6 @@ class RaftService(rpyc.Service):
     def exposed_request_vote(self, term, candidate_id, last_log_index, last_log_term):
 
         my_vote = False
-
         if RaftService.have_i_vote_this_term:
             print "Server %s has already vote this term (%s) to %s" % (
                 RaftService.server_id, RaftService.term, RaftService.voted_for)
@@ -80,6 +79,7 @@ class RaftService(rpyc.Service):
     def request_votes():
 
         total_votes = 0
+        last_index, last_term = RaftService.get_last_log_index_and_term()
 
         # TODO Run this concurrently
         # For now we assume that the network wont fail
@@ -91,7 +91,9 @@ class RaftService(rpyc.Service):
             try:
                 peer_connection = RaftService.connect(peer)
                 if peer_connection != None:
-                    vote = peer_connection.request_vote()
+                    vote = peer_connection.exposed_request_vote(term=RaftService.term,
+                                                                candidate_id=RaftService.server_id,
+                                                                last_log_index=last_index, last_log_term=last_term)
                     if vote:
                         total_votes = total_votes + 1
 
@@ -145,8 +147,10 @@ class RaftService(rpyc.Service):
         RaftService.resetAndStartTimer()
 
     def get_last_log_index_and_term(self):
+        tuple = 0, 0, 0
+        if RaftService.stable_log != None:
+            tuple = RaftService.stable_log[-1]
 
-        tuple = RaftService.stable_log[-1]
         return tuple[0], tuple[1]
 
     def persist_parameters(self):
@@ -156,7 +160,7 @@ class RaftService(rpyc.Service):
 
     def read_persisted_parameters(self):
         (RaftService.voted_for, RaftService.term, RaftService.stable_log) = pickle.load(
-            open("persist_parameters.p", "rb"))
+                open("persist_parameters.p", "rb"))
 
 
 if __name__ == "__main__":

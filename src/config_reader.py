@@ -52,3 +52,10 @@ class ConfigReader:
         except Exception as details:
             print details
             return None
+
+    def get_majority_criteria(self):
+        try:
+            return self.config.get("GeneralConfig", "majority_criteria")
+        except Exception as details:
+            print details
+            return None
