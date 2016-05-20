@@ -7,7 +7,7 @@ class ConfigReader:
         self.config = ConfigParser.ConfigParser()
         self.config.read(config_file_path)
 
-    def get_peers(self, server_id, total_nodes):
+    def get_peers(self, server_id, total_servers):
         peers = list()
         for i in [x for x in range(total_servers) if x != server_id]:
             peers.append(self.get_ip_and_port_of_server("Server" + str(i)))
