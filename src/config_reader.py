@@ -7,7 +7,7 @@ class ConfigReader:
         self.config = ConfigParser.ConfigParser()
         self.config.read(config_file_path)
 
-    def get_peer_servers(self, server_id, total_servers):
+    def get_peers(self, server_id, total_nodes):
         peers = list()
         for i in [x for x in range(total_servers) if x != server_id]:
             peers.append(self.get_ip_and_port_of_server("Server" + str(i)))
@@ -27,6 +27,9 @@ class ConfigReader:
             print details
             return None
 
+    def getTotalNodes(self):
+        return int(self.getConfiguration("GeneralConfig","nodes"))
+
     def getConfiguration(self, section, entry):
         """
         Parameters:
@@ -42,6 +45,7 @@ class ConfigReader:
             print details
             return None
     
+
     def electionTimeoutPeriod(self):
         try:
             return self.config.get("GeneralConfig", "electionTimeoutLower")
