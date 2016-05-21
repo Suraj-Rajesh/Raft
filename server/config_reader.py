@@ -30,6 +30,9 @@ class ConfigReader:
     def getTotalNodes(self):
         return int(self.getConfiguration("GeneralConfig","nodes"))
 
+    def getHeartBeatInterval(self):
+        return int(self.getConfiguration("GeneralConfig","heartBeatInterval"))
+
     def getConfiguration(self, section, entry):
         """
         Parameters:

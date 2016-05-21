@@ -7,8 +7,8 @@ from persistence_manager import PersistenceManager
 import pickle
 
 # Possible states of Raft node
-LEADER = "leader"
-FOLLOWER = "follower"
+LEADER    = "leader"
+FOLLOWER  = "follower"
 CANDIDATE = "candidate"
 
 
@@ -18,11 +18,15 @@ class RaftService(rpyc.Service):
 
     state = FOLLOWER
     electionTimer = 0
+    heartBeatTimer = 0
     server_id = int(config_reader.getConfiguration("CurrentServer", "sid"))
+    ip_port = config_reader.get_ip_and_port_of_server("Server" + str(server_id))
     total_nodes = int(config_reader.getTotalNodes())
     timeoutLower = int(config_reader.electionTimeoutPeriod())  # Election timeout timer to be between, T to 2T (random)
     peers = config_reader.get_peers(server_id, total_nodes)
-    term = 1
+    print peers
+    term = int(persistence_manager.getCurrentTerm())
+    heartBeatInterval = config_reader.getHeartBeatInterval()
     majority_criteria = int(config_reader.get_majority_criteria())
     interrupt = False
     leader_id = -1
@@ -51,11 +55,40 @@ class RaftService(rpyc.Service):
         RaftService.electionTimer.start()
 
     @staticmethod
+    def startHeartBeatTimer():
+        # Once LEADER, start sending heartbeat messages(empty AppendRPC messages) to peers
+        RaftService.heartBeatTimer = threading.Timer(RaftService.heartBeatInterval, RaftService.sendHeartBeat)
+        RaftService.heartBeatTimer.start()
+
+    @staticmethod
+    def sendHeartBeat():
+
+        if RaftService.state == LEADER:
+            threading.Thread(target=RaftService.startHeartBeatTimer).start()
+
+        for peer in peers:
+            peerConnection = connect(peer)
+
+            if peerConnection is not None:
+                try:
+                    peerConnection.heartBeat()
+                except Exception as details:
+                    print details
+
+    def exposed_heartBeat():
+        print "Received HeartBeat"
+        RaftService.resetAndStartTimer()
+
+    def exposed_appendRPC():
+        # Implement AppendRPC here
+        pass
+
+    @staticmethod
     def resetAndStartTimer():
         RaftService.electionTimer.cancel()
         RaftService.startElectionTimer()
 
-    def exposed_request_vote(self, term, candidate_id, last_log_index, last_log_term):
+    def exposed_requestRPC(self, term, candidate_id, last_log_index, last_log_term):
 
         my_vote = False
         if RaftService.have_i_vote_this_term:
@@ -82,6 +115,7 @@ class RaftService(rpyc.Service):
         last_index, last_term = RaftService.get_last_log_index_and_term()
 
         # TODO Run this concurrently
+        # Suggestion: Create a separate RPC call to handle response. This RPC only request vote.
         # For now we assume that the network wont fail
         for peer in RaftService.peers:
 
@@ -91,9 +125,9 @@ class RaftService(rpyc.Service):
             try:
                 peer_connection = RaftService.connect(peer)
                 if peer_connection != None:
-                    vote = peer_connection.exposed_request_vote(term=RaftService.term,
-                                                                candidate_id=RaftService.server_id,
-                                                                last_log_index=last_index, last_log_term=last_term)
+                    vote = peer_connection.requestRPC(term=RaftService.term,
+                                                      candidate_id=RaftService.server_id,
+                                                      last_log_index=last_index, last_log_term=last_term)
                     if vote:
                         total_votes = total_votes + 1
 
@@ -104,6 +138,7 @@ class RaftService(rpyc.Service):
 
     @staticmethod
     def connect(peer):
+        print "Connecting to: " + peer[0] 
         try:
             ip_address = peer[0]
             port = peer[1]
@@ -112,6 +147,7 @@ class RaftService(rpyc.Service):
             return peerConnection
 
         except Exception as details:
+            print "Exception here"
             print details
             return None
 
@@ -146,9 +182,11 @@ class RaftService(rpyc.Service):
     def exposed_interruptTimer(self):
         RaftService.resetAndStartTimer()
 
-    def get_last_log_index_and_term(self):
+    @staticmethod
+    def get_last_log_index_and_term():
         tuple = 0, 0, 0
-        if RaftService.stable_log != None:
+        # If stabe_log is not empty
+        if RaftService.stable_log:
             tuple = RaftService.stable_log[-1]
 
         return tuple[0], tuple[1]
@@ -165,5 +203,5 @@ class RaftService(rpyc.Service):
 
 if __name__ == "__main__":
     RaftService.startElectionTimer()
-    t = ThreadedServer(RaftService, port=18861, protocol_config={"allow_public_attrs": True})
+    t = ThreadedServer(RaftService, port = RaftService.ip_port[1], protocol_config={"allow_public_attrs": True})
     t.start()
