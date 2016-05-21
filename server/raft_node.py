@@ -7,13 +7,15 @@ from persistence_manager import PersistenceManager
 import pickle
 
 # States of Raft node
-LEADER    = "LEADER"
-FOLLOWER  = "FOLLOWER"
+LEADER = "LEADER"
+FOLLOWER = "FOLLOWER"
 CANDIDATE = "CANDIDATE"
 
+#Status
+SUCCESS = "SUCCESS"
+FAILURE = "FAILURE"
 
 class RaftService(rpyc.Service):
-
     config_reader = ConfigReader("../config/config.ini")
     persistence_manager = PersistenceManager("../persistence/persistence.ini")
 
@@ -33,7 +35,7 @@ class RaftService(rpyc.Service):
     leader_id = -1
     voted_for = -1
     have_i_vote_this_term = False
-    stable_log = list()  # (index, term, value)
+    stable_log = list()  # (index, term, value, commit_status)
 
     def on_connect(self):
         # code that runs when a new connection is created
@@ -120,6 +122,7 @@ class RaftService(rpyc.Service):
         # For now we assume that the network wont fail
         for peer in RaftService.peers:
 
+            # TODO This may not work in multi threaded environment
             if RaftService.interrupt:
                 return -1
 
@@ -141,7 +144,7 @@ class RaftService(rpyc.Service):
     # TODO: Review this method. Now, connecting to global "RaftService.connection"
     @staticmethod
     def connect(peer):
-        print "Connecting to: " + peer[0] 
+        print "Connecting to: " + peer[0]
         try:
             ip_address = peer[0]
             port = peer[1]
@@ -162,7 +165,7 @@ class RaftService(rpyc.Service):
         RaftService.state = CANDIDATE
         RaftService.term = RaftService.term + 1
         RaftService.have_i_vote_this_term = True
-        #TODO You have to reset this to False when the term changes
+        # TODO You have to reset this to False when the term changes
         total_votes = RaftService.request_votes()
 
         # Check Majority
@@ -190,7 +193,7 @@ class RaftService(rpyc.Service):
 
     @staticmethod
     def get_last_log_index_and_term():
-        tuple = 0, 0, 0
+        tuple = 0, 0, 0, False
         # If stabe_log is not empty
         if RaftService.stable_log:
             tuple = RaftService.stable_log[-1]
@@ -206,37 +209,68 @@ class RaftService(rpyc.Service):
         (RaftService.voted_for, RaftService.term, RaftService.stable_log) = pickle.load(
                 open("persist_parameters.p", "rb"))
 
+    def append_entries(self, blog, client_id):
+        # This code is to be executed by the LEADER
+        # The driver of this method is Client or Followers forwarding client requests
 
-    def append_entries(self):
-        #This code is to be executed by the LEADER
-        #The driver of this method is Client or Followers forwarding client requests
+        entries = list()
+        entries.append(blog)
 
+        # 1 Replicate the blog
+        # (index, term, value, commit_status)
+        previous_log_index, previous_log_term = RaftService.get_last_log_index_and_term()
+        RaftService.stable_log.append((previous_log_index + 1, RaftService.term, blog, False))
+
+        # 2 Send RPCs and wait for majority
         if RaftService.state == LEADER:
-            pass
-        else:
-            print "You are not the leader. Wrongly called this method!"
+            # TODO Redundant Code Ah Man!
+            for peer in RaftService.peers:
+                try:
+                    next_index = 0
+                    commit_index = 0
+                    # TODO For now, as the dude doesnt fail, the entries are what client asks to replicate
+                    # TODO Remove this dangerous guy at once!
+                    # TODO Does it make sense to sleep for a while and try again network failure errors
+                    while True:
+                        RaftService.update_indices_try_again()
+                        peer_connection = RaftService.connect(peer)
+                        if peer_connection != None:
+                            term, status, next_index = peer_connection.append_entriesRPC(term=RaftService.term,
+                                                                             leader_id=RaftService.server_id,
+                                                                             previous_log_index=previous_log_index,
+                                                                             previous_log_term=previous_log_term,
+                                                                             entries=entries)
+                        if status == "SUCCESS":
+                            break
 
-        #1 Replicate the blog
-        #2 Wait for majority
-        #3 If successful,
-            #3a Run it on state machine
-            #3b Tell client replication is done
-            #3c Ask peers to run it on their state machine
-        #4 If failed, exit gracefully, tell the client
-        #5 If you are sending heart beat just sent it with empty log
+                except Exception as details:
+                    print details
+        else:
+            print "I aint no leader. Somebody called me by accident!"
+
+
+
+            # 3 If successful,
+            # 3a Run it on state machine
+            # 3b Tell client replication is done
+            # 3c Ask peers to run it on their state machine
+            # 4 If failed, exit gracefully, tell the client
+            # 5 If you are sending heart beat just sent it with empty log
+
+    def update_indices_try_again():
+        pass
 
     def append_entriesRPC(self):
 
-        #1 Perform Consistency Checks
-            #a The term and log index
-            #b
-        #2
+        # 1 Perform Consistency Checks
+        # a The term and log index
+        # b
+        # 2 Check if the id is same as leader
         pass
 
 
 if __name__ == "__main__":
-
     print "Starting Server %d with Peers %s" % (RaftService.server_id, RaftService.peers)
     RaftService.start_election_timer()
-    t = ThreadedServer(RaftService, port = RaftService.ip_port[1], protocol_config={"allow_public_attrs": True})
+    t = ThreadedServer(RaftService, port=RaftService.ip_port[1], protocol_config={"allow_public_attrs": True})
     t.start()
