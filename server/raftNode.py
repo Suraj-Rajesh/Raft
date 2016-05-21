@@ -24,7 +24,7 @@ class RaftService(rpyc.Service):
     total_nodes = int(config_reader.getTotalNodes())
     timeoutLower = int(config_reader.electionTimeoutPeriod())  # Election timeout timer to be between, T to 2T (random)
     peers = config_reader.get_peers(server_id, total_nodes)
-    print peers
+    connection = 0
     term = int(persistence_manager.getCurrentTerm())
     heartBeatInterval = config_reader.getHeartBeatInterval()
     majority_criteria = int(config_reader.get_majority_criteria())
@@ -57,17 +57,21 @@ class RaftService(rpyc.Service):
     @staticmethod
     def startHeartBeatTimer():
         # Once LEADER, start sending heartbeat messages(empty AppendRPC messages) to peers
-        RaftService.heartBeatTimer = threading.Timer(RaftService.heartBeatInterval, RaftService.sendHeartBeat)
+        RaftService.heartBeatTimer = threading.Timer(RaftService.heartBeatInterval, RaftService.triggerNextHeartBeat)
         RaftService.heartBeatTimer.start()
 
     @staticmethod
-    def sendHeartBeat():
+    def triggerNextHeartBeat():
 
         if RaftService.state == LEADER:
             threading.Thread(target=RaftService.startHeartBeatTimer).start()
 
-        for peer in peers:
-            peerConnection = connect(peer)
+            RaftService.sendHeartBeat()
+
+    @staticmethod
+    def sendHeartBeat():
+        for peer in RaftService.peers:
+            peerConnection = RaftService.connect(peer)
 
             if peerConnection is not None:
                 try:
@@ -75,7 +79,7 @@ class RaftService(rpyc.Service):
                 except Exception as details:
                     print details
 
-    def exposed_heartBeat():
+    def exposed_heartBeat(self):
         print "Received HeartBeat"
         RaftService.resetAndStartTimer()
 
@@ -115,7 +119,7 @@ class RaftService(rpyc.Service):
         last_index, last_term = RaftService.get_last_log_index_and_term()
 
         # TODO Run this concurrently
-        # Suggestion: Create a separate RPC call to handle response. This RPC only request vote.
+        # Suggestion: Create a separate RPC call to handle response. This RPC only requests for vote.
         # For now we assume that the network wont fail
         for peer in RaftService.peers:
 
@@ -134,16 +138,18 @@ class RaftService(rpyc.Service):
             except Exception as details:
                 print details
 
-        return total_votes
+        # +1 to account for self-vote
+        return total_votes + 1
 
+    # TODO: Review this method. Now, connecting to global "RaftService.connection"
     @staticmethod
     def connect(peer):
         print "Connecting to: " + peer[0] 
         try:
             ip_address = peer[0]
             port = peer[1]
-            connection = rpyc.connect(ip_address, port, config={"allow_public_attrs": True})
-            peerConnection = connection.root
+            RaftService.connection = rpyc.connect(ip_address, port, config={"allow_public_attrs": True})
+            peerConnection = RaftService.connection.root
             return peerConnection
 
         except Exception as details:
@@ -158,24 +164,26 @@ class RaftService(rpyc.Service):
         print "Starting election for server %s" % (RaftService.server_id)
         RaftService.state = CANDIDATE
         RaftService.term = RaftService.term + 1
+        RaftService.have_i_vote_this_term = True
         total_votes = RaftService.request_votes()
 
         # Check Majority
         if total_votes == -1:
             print "Voting was interrupted by external factor"
             RaftService.state = FOLLOWER
+            RaftService.resetAndStartTimer()
 
         elif total_votes >= RaftService.majority_criteria:
             RaftService.leader_id = RaftService.server_id
             RaftService.state = LEADER
+            # Send HeartBeat immediately and then setup regular heartbeats
+            RaftService.startHeartBeatTimer()
             print "Successfully Elected New Leader %s " % RaftService.leader_id
 
         else:
             # Step Down
             RaftService.state = FOLLOWER
-
-        # Once election is done, reset Timer and start again
-        RaftService.resetAndStartTimer()
+            RaftService.resetAndStartTimer()
 
     # Testing peers interrupting election timer
     # TODO Remove if not needed
@@ -202,6 +210,7 @@ class RaftService(rpyc.Service):
 
 
 if __name__ == "__main__":
+    print "Starting Server %d with Peers %s" % (RaftService.server_id, RaftService.peers)
     RaftService.startElectionTimer()
     t = ThreadedServer(RaftService, port = RaftService.ip_port[1], protocol_config={"allow_public_attrs": True})
     t.start()
