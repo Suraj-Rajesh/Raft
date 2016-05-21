@@ -6,13 +6,14 @@ from config_reader import ConfigReader
 from persistence_manager import PersistenceManager
 import pickle
 
-# Possible states of Raft node
-LEADER    = "leader"
-FOLLOWER  = "follower"
-CANDIDATE = "candidate"
+# States of Raft node
+LEADER    = "LEADER"
+FOLLOWER  = "FOLLOWER"
+CANDIDATE = "CANDIDATE"
 
 
 class RaftService(rpyc.Service):
+
     config_reader = ConfigReader("../config/config.ini")
     persistence_manager = PersistenceManager("../persistence/persistence.ini")
 
@@ -22,7 +23,7 @@ class RaftService(rpyc.Service):
     server_id = int(config_reader.getConfiguration("CurrentServer", "sid"))
     ip_port = config_reader.get_ip_and_port_of_server("Server" + str(server_id))
     total_nodes = int(config_reader.getTotalNodes())
-    timeoutLower = int(config_reader.electionTimeoutPeriod())  # Election timeout timer to be between, T to 2T (random)
+    timeout_parameter = int(config_reader.electionTimeoutPeriod())
     peers = config_reader.get_peers(server_id, total_nodes)
     connection = 0
     term = int(persistence_manager.getCurrentTerm())
@@ -48,28 +49,28 @@ class RaftService(rpyc.Service):
         return RaftService.server_id
 
     @staticmethod
-    def startElectionTimer():
+    def start_election_timer():
         # Election timeout to be a random value between T and 2T
-        timeout = randint(RaftService.timeoutLower, 2 * RaftService.timeoutLower)
-        RaftService.electionTimer = threading.Timer(timeout, RaftService.startElection)
+        timeout = randint(RaftService.timeout_parameter, 2 * RaftService.timeout_parameter)
+        RaftService.electionTimer = threading.Timer(timeout, RaftService.start_election)
         RaftService.electionTimer.start()
 
     @staticmethod
-    def startHeartBeatTimer():
+    def start_heartbeat_timer():
         # Once LEADER, start sending heartbeat messages(empty AppendRPC messages) to peers
-        RaftService.heartBeatTimer = threading.Timer(RaftService.heartBeatInterval, RaftService.triggerNextHeartBeat)
+        RaftService.heartBeatTimer = threading.Timer(RaftService.heartBeatInterval, RaftService.trigger_next_heartbeat)
         RaftService.heartBeatTimer.start()
 
     @staticmethod
-    def triggerNextHeartBeat():
+    def trigger_next_heartbeat():
 
         if RaftService.state == LEADER:
-            threading.Thread(target=RaftService.startHeartBeatTimer).start()
+            threading.Thread(target=RaftService.start_heartbeat_timer).start()
 
-            RaftService.sendHeartBeat()
+            RaftService.send_heartbeat()
 
     @staticmethod
-    def sendHeartBeat():
+    def send_heartbeat():
         for peer in RaftService.peers:
             peerConnection = RaftService.connect(peer)
 
@@ -79,18 +80,14 @@ class RaftService(rpyc.Service):
                 except Exception as details:
                     print details
 
-    def exposed_heartBeat(self):
+    def exposed_heartbeat(self):
         print "Received HeartBeat"
-        RaftService.resetAndStartTimer()
-
-    def exposed_appendRPC():
-        # Implement AppendRPC here
-        pass
+        RaftService.reset_and_start_timer()
 
     @staticmethod
-    def resetAndStartTimer():
+    def reset_and_start_timer():
         RaftService.electionTimer.cancel()
-        RaftService.startElectionTimer()
+        RaftService.start_election_timer()
 
     def exposed_requestRPC(self, term, candidate_id, last_log_index, last_log_term):
 
@@ -159,36 +156,37 @@ class RaftService(rpyc.Service):
 
     # Once election timer times out, need to start the election
     @staticmethod
-    def startElection():
+    def start_election():
 
         print "Starting election for server %s" % (RaftService.server_id)
         RaftService.state = CANDIDATE
         RaftService.term = RaftService.term + 1
         RaftService.have_i_vote_this_term = True
+        #TODO You have to reset this to False when the term changes
         total_votes = RaftService.request_votes()
 
         # Check Majority
         if total_votes == -1:
             print "Voting was interrupted by external factor"
             RaftService.state = FOLLOWER
-            RaftService.resetAndStartTimer()
+            RaftService.reset_and_start_timer()
 
         elif total_votes >= RaftService.majority_criteria:
             RaftService.leader_id = RaftService.server_id
             RaftService.state = LEADER
             # Send HeartBeat immediately and then setup regular heartbeats
-            RaftService.startHeartBeatTimer()
+            RaftService.start_heartbeat_timer()
             print "Successfully Elected New Leader %s " % RaftService.leader_id
 
         else:
             # Step Down
             RaftService.state = FOLLOWER
-            RaftService.resetAndStartTimer()
+            RaftService.reset_and_start_timer()
 
     # Testing peers interrupting election timer
     # TODO Remove if not needed
-    def exposed_interruptTimer(self):
-        RaftService.resetAndStartTimer()
+    def exposed_interrupt_timer(self):
+        RaftService.reset_and_start_timer()
 
     @staticmethod
     def get_last_log_index_and_term():
@@ -210,7 +208,13 @@ class RaftService(rpyc.Service):
 
 
     def append_entries(self):
-        #You are the leaeder asking peers to replicate information
+        #This code is to be executed by the LEADER
+        #The driver of this method is Client or Followers forwarding client requests
+
+        if RaftService.state == LEADER:
+            pass
+        else:
+            print "You are not the leader. Wrongly called this method!"
 
         #1 Replicate the blog
         #2 Wait for majority
@@ -220,7 +224,6 @@ class RaftService(rpyc.Service):
             #3c Ask peers to run it on their state machine
         #4 If failed, exit gracefully, tell the client
         #5 If you are sending heart beat just sent it with empty log
-        pass
 
     def append_entriesRPC(self):
 
@@ -232,7 +235,8 @@ class RaftService(rpyc.Service):
 
 
 if __name__ == "__main__":
+
     print "Starting Server %d with Peers %s" % (RaftService.server_id, RaftService.peers)
-    RaftService.startElectionTimer()
+    RaftService.start_election_timer()
     t = ThreadedServer(RaftService, port = RaftService.ip_port[1], protocol_config={"allow_public_attrs": True})
     t.start()
