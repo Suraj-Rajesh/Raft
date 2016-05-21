@@ -209,6 +209,28 @@ class RaftService(rpyc.Service):
                 open("persist_parameters.p", "rb"))
 
 
+    def append_entries(self):
+        #You are the leaeder asking peers to replicate information
+
+        #1 Replicate the blog
+        #2 Wait for majority
+        #3 If successful,
+            #3a Run it on state machine
+            #3b Tell client replication is done
+            #3c Ask peers to run it on their state machine
+        #4 If failed, exit gracefully, tell the client
+        #5 If you are sending heart beat just sent it with empty log
+        pass
+
+    def append_entriesRPC(self):
+
+        #1 Perform Consistency Checks
+            #a The term and log index
+            #b
+        #2
+        pass
+
+
 if __name__ == "__main__":
     print "Starting Server %d with Peers %s" % (RaftService.server_id, RaftService.peers)
     RaftService.startElectionTimer()
