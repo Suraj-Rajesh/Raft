@@ -22,20 +22,25 @@ class RaftService(rpyc.Service):
     state = FOLLOWER
     electionTimer = 0
     heartBeatTimer = 0
-    server_id = int(config_reader.getConfiguration("CurrentServer", "sid"))
-    ip_port = config_reader.get_ip_and_port_of_server("Server" + str(server_id))
-    total_nodes = int(config_reader.getTotalNodes())
-    timeout_parameter = int(config_reader.electionTimeoutPeriod())
+    server_id = int(config_reader.get_configuration("CurrentServer", "sid"))
+    ip_port = config_reader.get_server_parameters("Server" + str(server_id))
+    total_nodes = int(config_reader.get_total_nodes())
+    timeout_parameter = int(config_reader.get_election_timeout_period())
     peers = config_reader.get_peers(server_id, total_nodes)
     connection = 0
     term = int(persistence_manager.getCurrentTerm())
-    heartBeatInterval = config_reader.getHeartBeatInterval()
+    heartBeatInterval = config_reader.get_heartbeat_interval()
     majority_criteria = int(config_reader.get_majority_criteria())
     interrupt = False
     leader_id = -1
     voted_for = -1
     have_i_vote_this_term = False
     stable_log = list()  # (index, term, value, commit_status)
+
+    next_indices = dict()
+    match_indices = dict()
+    commit_index = -1
+    blog = list()
 
     def on_connect(self):
         # code that runs when a new connection is created
@@ -144,10 +149,10 @@ class RaftService(rpyc.Service):
     # TODO: Review this method. Now, connecting to global "RaftService.connection"
     @staticmethod
     def connect(peer):
-        print "Connecting to: " + peer[0]
+        print "Connecting to: " + peer[1]
         try:
-            ip_address = peer[0]
-            port = peer[1]
+            ip_address = peer[1]
+            port = peer[2]
             RaftService.connection = rpyc.connect(ip_address, port, config={"allow_public_attrs": True})
             peerConnection = RaftService.connection.root
             return peerConnection
@@ -194,7 +199,7 @@ class RaftService(rpyc.Service):
     @staticmethod
     def get_last_log_index_and_term():
         tuple = 0, 0, 0, False
-        # If stabe_log is not empty
+        # If stable_log is not empty
         if RaftService.stable_log:
             tuple = RaftService.stable_log[-1]
 
@@ -223,41 +228,60 @@ class RaftService(rpyc.Service):
 
         # 2 Send RPCs and wait for majority
         if RaftService.state == LEADER:
-            # TODO Redundant Code Ah Man!
-            for peer in RaftService.peers:
-                try:
-                    next_index = 0
-                    commit_index = 0
-                    # TODO For now, as the dude doesnt fail, the entries are what client asks to replicate
-                    # TODO Remove this dangerous guy at once!
-                    # TODO Does it make sense to sleep for a while and try again network failure errors
-                    while True:
-                        RaftService.update_indices_try_again()
-                        peer_connection = RaftService.connect(peer)
-                        if peer_connection != None:
-                            term, status, next_index = peer_connection.append_entriesRPC(term=RaftService.term,
-                                                                             leader_id=RaftService.server_id,
-                                                                             previous_log_index=previous_log_index,
-                                                                             previous_log_term=previous_log_term,
-                                                                             entries=entries)
-                        if status == "SUCCESS":
-                            break
 
-                except Exception as details:
-                    print details
+            total_votes = RaftService.replicate_log(entries, previous_log_index,previous_log_term) + 1
+
+            if total_votes >= RaftService.majority_criteria:
+                print "Reached consensus to replicate %s, %s"%(previous_log_index+1, RaftService.term)
+                RaftService.apply_log_on_state_machine(blog)
+                RaftService.respond_to_client()
+                RaftService.replicate_state_machine()
+
+            else:
+                print "Reached no majority"
+                RaftService.respond_to_client()
+
         else:
             print "I aint no leader. Somebody called me by accident!"
 
+    def replicate_log(self, entries, previous_log_index,previous_log_term):
 
+        # TODO Redundant Code Ah Man!
+        for peer in RaftService.peers:
+            try:
+                # TODO For now, as the dude doesnt fail, the entries are what client asks to replicate
+                # TODO Remove this dangerous guy at once!
+                # TODO Does it make sense to sleep for a while and try again network failure errors
+                while True:
+                    RaftService.update_indices_try_again()
+                    peer_connection = RaftService.connect(peer)
+                    if peer_connection != None:
+                        term, status, next_index = peer_connection.append_entriesRPC(term=RaftService.term,
+                                                                                     leader_id=RaftService.server_id,
+                                                                                     previous_log_index=previous_log_index,
+                                                                                     previous_log_term=previous_log_term,
+                                                                                     entries=entries,
+                                                                                     commit_index=RaftService.commit_index)
+                    if status == "SUCCESS":
+                        total_votes = total_votes + 1
+                        # next_index = previous_log_index+1
+                        break
 
-            # 3 If successful,
-            # 3a Run it on state machine
-            # 3b Tell client replication is done
-            # 3c Ask peers to run it on their state machine
-            # 4 If failed, exit gracefully, tell the client
-            # 5 If you are sending heart beat just sent it with empty log
+            except Exception as details:
+                print details
 
-    def update_indices_try_again():
+    def replicate_state_machine(self):
+        pass
+
+    def apply_log_on_state_machine(self, blog):
+        RaftService.blog.append(blog)
+
+    def respond_to_client(self):
+        #TODO Respond actually
+        print "Responded to client"
+
+    def update_indices_try_again(self):
+        #TODO Waiting on append entries RPC impl
         pass
 
     def append_entriesRPC(self):

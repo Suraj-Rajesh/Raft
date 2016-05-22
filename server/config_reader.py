@@ -10,30 +10,27 @@ class ConfigReader:
     def get_peers(self, server_id, total_servers):
         peers = list()
         for i in [x for x in range(total_servers) if x != server_id]:
-            peers.append(self.get_ip_and_port_of_server("Server" + str(i)))
+            peers.append(self.get_server_parameters("Server" + str(i)))
         return peers
 
-    def get_ip_and_port_of_server(self,section):
-        """
-        Use this to get server info as a tuple (ip address, port)
-        """
-
+    def get_server_parameters(self, section):
         try:
-            ip = self.getConfiguration(section, "ip")
-            port = int(self.getConfiguration(section, "port"))
-            return (ip, port)
+            id = self.get_configuration(section,"id")
+            ip = self.get_configuration(section, "ip")
+            port = int(self.get_configuration(section, "port"))
+            return (id, ip, port)
 
         except Exception as details:
             print details
             return None
 
-    def getTotalNodes(self):
-        return int(self.getConfiguration("GeneralConfig","nodes"))
+    def get_total_nodes(self):
+        return int(self.get_configuration("GeneralConfig", "nodes"))
 
-    def getHeartBeatInterval(self):
-        return int(self.getConfiguration("GeneralConfig","heartBeatInterval"))
+    def get_heartbeat_interval(self):
+        return int(self.get_configuration("GeneralConfig", "heartBeatInterval"))
 
-    def getConfiguration(self, section, entry):
+    def get_configuration(self, section, entry):
         """
         Parameters:
         section : section in [] in config.ini
@@ -49,7 +46,7 @@ class ConfigReader:
             return None
     
 
-    def electionTimeoutPeriod(self):
+    def get_election_timeout_period(self):
         try:
             return self.config.get("GeneralConfig", "electionTimeoutLower")
         except Exception as details:
