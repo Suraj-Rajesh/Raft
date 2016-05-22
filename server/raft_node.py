@@ -11,6 +11,10 @@ LEADER    = "LEADER"
 FOLLOWER  = "FOLLOWER"
 CANDIDATE = "CANDIDATE"
 
+# AppendRPC return values
+SUCCESS                  = "SUCCESS"
+TERM_INCONSISTENCY       = "TERM_INCONSISTENCY"
+NEXT_INDEX_INCONSISTENCY = "NEXT_INDEX_INCONSISTENCY"
 
 class RaftService(rpyc.Service):
 
@@ -76,12 +80,18 @@ class RaftService(rpyc.Service):
 
             if peerConnection is not None:
                 try:
-                    peerConnection.heartBeat()
+                    peerConnection.heartBeat(RaftService.term)
                 except Exception as details:
                     print details
 
-    def exposed_heartbeat(self):
+    def exposed_heartbeat(self, leaders_term):
         print "Received HeartBeat"
+        if leaders_term > RaftService.term:
+            RaftService.term = leaders_term
+
+        if RaftService.state == LEADER or RaftService.state == CANDIDATE:
+            RaftService.state = FOLLOWER
+
         RaftService.reset_and_start_timer()
 
     @staticmethod
@@ -225,14 +235,24 @@ class RaftService(rpyc.Service):
         #4 If failed, exit gracefully, tell the client
         #5 If you are sending heart beat just sent it with empty log
 
-    def append_entriesRPC(self):
+    def exposed_appendentriesRPC(self, leader_term, leaders_id, leader_prev_log_index, leader_prev_log_term, entries, commit_index):
 
-        #1 Perform Consistency Checks
-            #a The term and log index
-            #b
-        #2
-        pass
+        # Get my last log index and term
+        last_log_index_term = RaftService.get_last_log_index_and_term()
 
+        # Check if next index matches. If not, send Inconsistency error and next index of the Follower
+        if leader_prev_log_index != last_log_index_term[0]:
+            return (NEXT_INDEX_INCONSISTENCY, last_log_index_term[0] + 1)
+
+        # Check if previous log entry matches previous log term
+        # If not, send Term Inconsistency error and next index of the Follower
+        if leader_prev_log_term != last_log_index_term[1]:
+            return (TERM_INCONSISTENCY, last_log_index_term[0] + 1)
+
+        # Log consistency check successful. Append entries to log and send Success
+        RaftService.stable_log.append(entries)
+        # TODO: Store it on persistent disk
+        return SUCCESS
 
 if __name__ == "__main__":
 
