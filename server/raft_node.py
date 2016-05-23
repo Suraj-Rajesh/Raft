@@ -7,11 +7,11 @@ from persistence_manager import PersistenceManager
 import pickle
 
 # States of Raft node
-LEADER = "LEADER"
-FOLLOWER = "FOLLOWER"
+LEADER    = "LEADER"
+FOLLOWER  = "FOLLOWER"
 CANDIDATE = "CANDIDATE"
 
-# AppendRPC return values
+# AppendRPC return states
 SUCCESS                  = "SUCCESS"
 TERM_INCONSISTENCY       = "TERM_INCONSISTENCY"
 NEXT_INDEX_INCONSISTENCY = "NEXT_INDEX_INCONSISTENCY"
@@ -65,20 +65,19 @@ class RaftService(rpyc.Service):
 
     @staticmethod
     def start_heartbeat_timer():
-        # Once LEADER, start sending heartbeat messages(empty AppendRPC messages) to peers
+        # Once he is a LEADER, start sending heartbeat messages to peers
         RaftService.heartBeatTimer = threading.Timer(RaftService.heartBeatInterval, RaftService.trigger_next_heartbeat)
         RaftService.heartBeatTimer.start()
 
     @staticmethod
     def trigger_next_heartbeat():
-
         if RaftService.state == LEADER:
             threading.Thread(target=RaftService.start_heartbeat_timer).start()
-
             RaftService.send_heartbeat()
 
     @staticmethod
     def send_heartbeat():
+        # Connect to peers and send heartbeats
         for peer in RaftService.peers:
             peerConnection = RaftService.connect(peer)
 
@@ -94,7 +93,12 @@ class RaftService(rpyc.Service):
              RaftService.term = leaders_term
  
          if RaftService.state == LEADER or RaftService.state == CANDIDATE:
+
+             if RaftService.state == LEADER:
+                RaftService.heartBeatTimer.start()
+
              RaftService.state = FOLLOWER
+
         RaftService.reset_and_start_timer()
 
     @staticmethod
@@ -290,24 +294,42 @@ class RaftService(rpyc.Service):
         #TODO Waiting on append entries RPC impl
         pass
 
-    def exposed_appendentriesRPC(self, leader_term, leaders_id, leader_prev_log_index, leader_prev_log_term, entries, commit_index):
+    def exposed_append_entriesRPC(self, 
+                                  leader_term, 
+                                  leaders_id,
+                                  leader_prev_log_index,
+                                  leader_prev_log_term,
+                                  entries,
+                                  commit_index):
 
-        # Get my last log index and term
+        # If my term is less than leader's, update my term
+        if leaders_term > RaftService.term:
+             RaftService.term = leaders_term
+ 
+         if RaftService.state == LEADER or RaftService.state == CANDIDATE:
+
+             # If I the LEADER, stop sending heartbeats, change state to successor
+             if RaftService.state == LEADER:
+                RaftService.heartBeatTimer.cancel()
+
+             RaftService.state = FOLLOWER
+
+        # Get my last log index and last log index term
          last_log_index_term = RaftService.get_last_log_index_and_term()
  
          # Check if next index matches. If not, send Inconsistency error and next index of the Follower
          if leader_prev_log_index != last_log_index_term[0]:
-             return (NEXT_INDEX_INCONSISTENCY, last_log_index_term[0]  1)
+             return (RaftService.term, NEXT_INDEX_INCONSISTENCY, last_log_index_term[0] + 1)
  
          # Check if previous log entry matches previous log term
          # If not, send Term Inconsistency error and next index of the Follower
          if leader_prev_log_term != last_log_index_term[1]:
-             return (TERM_INCONSISTENCY, last_log_index_term[0] + 1)
+             return (RaftService.term, TERM_INCONSISTENCY, last_log_index_term[0] + 1)
   
          # Log consistency check successful. Append entries to log and send Success
          RaftService.stable_log.append(entries)
          # TODO: Store it on persistent disk
-         return SUCCESS
+         return (RaftService.term, SUCCESS, last_log_index_term[0] + 1)
 
 
 if __name__ == "__main__":
