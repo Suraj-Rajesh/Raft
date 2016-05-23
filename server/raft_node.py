@@ -95,7 +95,7 @@ class RaftService(rpyc.Service):
          if RaftService.state == LEADER or RaftService.state == CANDIDATE:
 
              if RaftService.state == LEADER:
-                RaftService.heartBeatTimer.start()
+                RaftService.heartBeatTimer.cancel()
 
              RaftService.state = FOLLOWER
 
