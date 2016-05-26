@@ -5,6 +5,7 @@ from rpyc.utils.server import ThreadedServer
 from config_reader import ConfigReader
 import pickle
 import os
+import logging
 
 # States of Raft node
 LEADER    = "LEADER"
@@ -42,11 +43,21 @@ class RaftService(rpyc.Service):
     else:  # This is the first time this node is running, dump empty log
        pickle.dump(stable_log, open("../persistence/stable_log.p", "wb"))
 
+    # Setting up logging
+    logger = logging.getLogger("raft_node")
+    log_handler = logging.FileHandler("../log/raft_node.log")
+    #formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    formatter = logging.Formatter("%(levelname)s %(message)s")
+    log_handler.setFormatter(formatter)
+    logger.addHandler(log_handler) 
+    logger.setLevel(logging.INFO)
+    logger.info("Initialiing log file")
+    
     state = FOLLOWER
     electionTimer = 0
     heartBeatTimer = 0
     server_id = int(config_reader.get_configuration("CurrentServer", "sid"))
-    ip_port = config_reader.get_server_parameters("Server" + str(server_id))
+    id_ip_port = config_reader.get_server_parameters("Server" + str(server_id))
     total_nodes = int(config_reader.get_total_nodes())
     timeout_parameter = int(config_reader.get_election_timeout_period())
     peers = config_reader.get_peers(server_id, total_nodes)
@@ -354,7 +365,8 @@ class RaftService(rpyc.Service):
 
 
 if __name__ == "__main__":
-    print "Starting Server %d with Peers %s" % (RaftService.server_id, RaftService.peers)
+    RaftService.logger.info("Starting Server %d with Peers %s" % (RaftService.server_id, RaftService.peers))
     RaftService.start_election_timer()
-    t = ThreadedServer(RaftService, port=RaftService.ip_port[1], protocol_config={"allow_public_attrs": True})
+    my_port = RaftService.id_ip_port[2]
+    t = ThreadedServer(RaftService, port=my_port, protocol_config={"allow_public_attrs": True})
     t.start()
