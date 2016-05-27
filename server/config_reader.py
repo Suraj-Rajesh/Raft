@@ -15,7 +15,7 @@ class ConfigReader:
 
     def get_server_parameters(self, section):
         try:
-            id = self.get_configuration(section,"id")
+            id = int(self.get_configuration(section,"id"))
             ip = self.get_configuration(section, "ip")
             port = int(self.get_configuration(section, "port"))
             return (id, ip, port)

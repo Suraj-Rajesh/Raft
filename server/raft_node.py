@@ -44,6 +44,11 @@ class RaftService(rpyc.Service):
        pickle.dump(stable_log, open("../persistence/stable_log.p", "wb"))
 
     # Setting up logging
+
+    # If previous log file already exists, remove it
+    if os.path.exists("../log/raft_node.log"):
+        os.remove("../log/raft_node.log")
+
     logger = logging.getLogger("raft_node")
     log_handler = logging.FileHandler("../log/raft_node.log")
     #formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
@@ -51,7 +56,6 @@ class RaftService(rpyc.Service):
     log_handler.setFormatter(formatter)
     logger.addHandler(log_handler) 
     logger.setLevel(logging.INFO)
-    logger.info("Initialiing log file")
     
     state = FOLLOWER
     electionTimer = 0
@@ -61,7 +65,6 @@ class RaftService(rpyc.Service):
     total_nodes = int(config_reader.get_total_nodes())
     timeout_parameter = int(config_reader.get_election_timeout_period())
     peers = config_reader.get_peers(server_id, total_nodes)
-    connection = 0
     heartBeatInterval = config_reader.get_heartbeat_interval()
     majority_criteria = int(config_reader.get_majority_criteria())
     interrupt = False
@@ -112,7 +115,7 @@ class RaftService(rpyc.Service):
                                                      entries = None, 
                                                      commit_index = RaftService.commmit_index) 
             except Exception as details:
-                logger.info("Unable to connect to server %d" %peer[0])
+                RaftService.logger.info("Unable to connect to server %d" %peer[0])
 
     @staticmethod
     def reset_and_start_timer():
@@ -123,15 +126,15 @@ class RaftService(rpyc.Service):
 
         my_vote = False
         if RaftService.have_i_vote_this_term:
-            print "Server %s has already vote this term (%s) to %s" % (
-                RaftService.server_id, RaftService.term, RaftService.voted_for)
+            RaftService.logger.info("Server %s has already vote this term (%s) to %s" % (
+                RaftService.server_id, RaftService.term, RaftService.voted_for))
         elif term < RaftService.term:
-            print "Stale Term of candidate %s" % candidate_id
+            RaftService.logger.info("Stale term of candidate %s" % candidate_id)
         else:
             log_index, log_term = self.get_last_log_index_and_term()
             if last_log_term >= log_term and last_log_index >= log_index:
                 my_vote = True
-                print "Voting Yes to candidate %s" % candidate_id
+                RaftService.logger.info("Voting YES to candidate %s" % candidate_id)
                 RaftService.voted_for = candidate_id
                 # TODO Need Review on this
                 RaftService.term = term
@@ -158,35 +161,20 @@ class RaftService(rpyc.Service):
                                                   last_log_term=last_term)
 
                 if vote:
+                    RaftService.logger.info("Received vote from server %d for leader election, term %d" 
+                                            %(peer[0], RaftService.term))
                     total_votes = total_votes + 1
 
             except Exception as details:
-                logger.info("Unable to connect to server %d" %peer[0])
+                RaftService.logger.info("Unable to connect to server %d" %peer[0])
         
         # +1 to account for self-vote
         return total_votes + 1
 
-    # Deprecated method
-    # @staticmethod
-    # def connect(peer):
-    #    print "Connecting to: " + peer[1]
-    #    try:
-    #        ip_address = peer[1]
-    #        port = peer[2]
-    #        RaftService.connection = rpyc.connect(ip_address, port, config={"allow_public_attrs": True})
-    #        peerConnection = RaftService.connection.root
-    #        return peerConnection
-    #
-    #    except Exception as details:
-    #        print details
-    #        return None
-
-    # Once election timer times out, need to start the election
-
     @staticmethod
     def start_election():
 
-        print "Starting election for server %s" % (RaftService.server_id)
+        RaftService.logger.info("Starting election for server %s" % (RaftService.server_id))
         RaftService.state = CANDIDATE
         RaftService.term = RaftService.term + 1
         RaftService.have_i_vote_this_term = True
@@ -195,7 +183,7 @@ class RaftService(rpyc.Service):
 
         # Check Majority
         if total_votes == -1:
-            print "Voting was interrupted by external factor"
+            RaftService.logger.info("Voting was interrupted by external factor")
             RaftService.state = FOLLOWER
             RaftService.reset_and_start_timer()
 
@@ -204,7 +192,7 @@ class RaftService(rpyc.Service):
             RaftService.state = LEADER
             # Send HeartBeat immediately and then setup regular heartbeats
             RaftService.start_heartbeat_timer()
-            print "Successfully Elected New Leader %s " % RaftService.leader_id
+            RaftService.logger.info("Successfully elected New Leader %s " % RaftService.leader_id)
 
         else:
             # Step Down
@@ -252,17 +240,17 @@ class RaftService(rpyc.Service):
             total_votes = RaftService.replicate_log(entries, previous_log_index,previous_log_term) + 1
 
             if total_votes >= RaftService.majority_criteria:
-                print "Reached consensus to replicate %s, %s"%(previous_log_index+1, RaftService.term)
+                RaftService.logger.info("Reached consensus to replicate %s, %s"%(previous_log_index+1, RaftService.term))
                 RaftService.apply_log_on_state_machine(blog)
                 RaftService.respond_to_client()
                 RaftService.replicate_state_machine()
 
             else:
-                print "Reached no majority"
+                RaftService.logger.info("Reached no majority")
                 RaftService.respond_to_client()
 
         else:
-            print "I aint no leader. Somebody called me by accident!"
+            RaftService.logger.info("I aint no leader. Somebody called me by accident!")
 
     def replicate_log(self, entries, previous_log_index,previous_log_term):
 
@@ -290,7 +278,7 @@ class RaftService(rpyc.Service):
                             break
 
                     except Exception as details:
-                        logger.info("Unable to connect to server %d" %peer[0])
+                        RaftService.logger.info("Unable to connect to server %d" %peer[0])
 
             except Exception as details:
                 print details
@@ -337,27 +325,30 @@ class RaftService(rpyc.Service):
         
         if entries is not None:  # Not a heartbeat, entries to append
 
+            RaftService.logger.info("Received appendRPC from %d" %leaders_id)
             # Get my last log index and last log index term
             my_prev_log_index, my_prev_log_entry_term = RaftService.get_last_log_index_and_term()
             my_next_index = my_prev_log_index + 1
  
             # Check if next index matches. If not, send Inconsistency error and next index of the Follower
             if leader_prev_log_index != my_prev_log_index:
+                RaftService.logger.info("Reply to AppendRPC: Sending NEXT_INDEX_INCONSISTENCY to  %d" %leaders_id)
                 return (RaftService.term, NEXT_INDEX_INCONSISTENCY, my_next_index)
  
             # Check if previous log entry matches previous log term
             # If not, send Term Inconsistency error and next index of the Follower
             if leader_prev_log_term != my_prev_log_entry_term:
+                RaftService.logger.info("Reply to AppendRPC: Sending TERM_INCONSISTENCY to  %d" %leaders_id)
                 return (RaftService.term, TERM_INCONSISTENCY, my_next_index)
   
             # Log consistency check successful. Append entries to log, persist on disk, send SUCCESS
             RaftService.stable_log.append(entries)
             self.persist_log()
+            RaftService.logger.info("Reply to AppendRPC: Sending SUCCESS to %d" %leaders_id)
             return (RaftService.term, SUCCESS, my_next_index)
 
         else:
-            print "Received HeartBeat"
-
+            RaftService.logger.info("Received HeartBeat from %d, my leader is %d" % (leaders_id, RaftService.leader_id))
 
 if __name__ == "__main__":
     RaftService.logger.info("Starting Server %d with Peers %s" % (RaftService.server_id, RaftService.peers))

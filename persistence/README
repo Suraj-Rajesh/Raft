@@ -1,0 +1,2 @@
+This directory stores the persistence parameters to be picked up by the Raft
+node, when it starts up from failure.
