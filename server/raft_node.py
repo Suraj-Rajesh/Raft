@@ -106,15 +106,13 @@ class RaftService(rpyc.Service):
     def send_heartbeat():
         # Connect to peers and send heartbeats
         for peer in RaftService.peers:
-            peerConnection = RaftService.connect(peer)
-
-            if peerConnection is not None:
-                try:
-                    peerConneciton.append_entriesRPC(term = RaftService.term, 
+            try:
+                connection = rpyc.connect(peer[1], peer[2], config={"allow_public_attrs": True})
+                connection.root.append_entriesRPC(term = RaftService.term, 
                                                      entries = None, 
                                                      commit_index = RaftService.commmit_index) 
-                except Exception as details:
-                    print details
+            except Exception as details:
+                logger.info("Unable to connect to server %d" %peer[0])
 
     @staticmethod
     def reset_and_start_timer():
@@ -152,42 +150,39 @@ class RaftService(rpyc.Service):
         # Suggestion: Create a separate RPC call to handle response. This RPC only requests for vote.
         # For now we assume that the network wont fail
         for peer in RaftService.peers:
-
-            # TODO This may not work in multi threaded environment
-            if RaftService.interrupt:
-                return -1
-
             try:
-                peer_connection = RaftService.connect(peer)
-                if peer_connection != None:
-                    vote = peer_connection.requestRPC(term=RaftService.term,
-                                                      candidate_id=RaftService.server_id,
-                                                      last_log_index=last_index, last_log_term=last_term)
-                    if vote:
-                        total_votes = total_votes + 1
+                connection = rpyc.connect(peer[1], peer[2], config={"allow_public_attrs": True})
+                vote = connection.root.requestRPC(term = RaftService.term, 
+                                                  candidate_id=RaftService.server_id,
+                                                  last_log_index=last_index, 
+                                                  last_log_term=last_term)
+
+                if vote:
+                    total_votes = total_votes + 1
 
             except Exception as details:
-                print details
-
+                logger.info("Unable to connect to server %d" %peer[0])
+        
         # +1 to account for self-vote
         return total_votes + 1
 
-    # TODO: Review this method. Now, connecting to global "RaftService.connection"
-    @staticmethod
-    def connect(peer):
-        print "Connecting to: " + peer[1]
-        try:
-            ip_address = peer[1]
-            port = peer[2]
-            RaftService.connection = rpyc.connect(ip_address, port, config={"allow_public_attrs": True})
-            peerConnection = RaftService.connection.root
-            return peerConnection
-
-        except Exception as details:
-            print details
-            return None
+    # Deprecated method
+    # @staticmethod
+    # def connect(peer):
+    #    print "Connecting to: " + peer[1]
+    #    try:
+    #        ip_address = peer[1]
+    #        port = peer[2]
+    #        RaftService.connection = rpyc.connect(ip_address, port, config={"allow_public_attrs": True})
+    #        peerConnection = RaftService.connection.root
+    #        return peerConnection
+    #
+    #    except Exception as details:
+    #        print details
+    #        return None
 
     # Once election timer times out, need to start the election
+
     @staticmethod
     def start_election():
 
@@ -215,11 +210,6 @@ class RaftService(rpyc.Service):
             # Step Down
             RaftService.state = FOLLOWER
             RaftService.reset_and_start_timer()
-
-    # Testing peers interrupting election timer
-    # TODO Remove if not needed
-    def exposed_interrupt_timer(self):
-        RaftService.reset_and_start_timer()
 
     @staticmethod
     def get_last_log_index_and_term():
@@ -283,22 +273,28 @@ class RaftService(rpyc.Service):
                 # TODO Remove this dangerous guy at once!
                 # TODO Does it make sense to sleep for a while and try again network failure errors
                 while True:
+
                     RaftService.update_indices_try_again()
-                    peer_connection = RaftService.connect(peer)
-                    if peer_connection != None:
-                        term, status, next_index = peer_connection.append_entriesRPC(term=RaftService.term,
+                    try:
+                        connection = rpyc.connect(peer[1], peer[2], config={"allow_public_attrs": True})
+                        term, status, next_index = connection.root.append_entriesRPC(term = RaftService.term, 
                                                                                      leader_id=RaftService.server_id,
                                                                                      previous_log_index=previous_log_index,
                                                                                      previous_log_term=previous_log_term,
                                                                                      entries=entries,
                                                                                      commit_index=RaftService.commit_index)
-                    if status == "SUCCESS":
-                        total_votes = total_votes + 1
-                        # next_index = previous_log_index+1
-                        break
+                            
+                        if status == SUCCESS:
+                            total_votes = total_votes + 1
+                            # next_index = previous_log_index+1
+                            break
+
+                    except Exception as details:
+                        logger.info("Unable to connect to server %d" %peer[0])
 
             except Exception as details:
                 print details
+
 
     def replicate_state_machine(self):
         pass
@@ -337,8 +333,7 @@ class RaftService(rpyc.Service):
             # Finally, change the state to FOLLOWER
             RaftService.state = FOLLOWER
 
-        # TODO Check commit_index and update state machine(blogs) accordingly
-
+        # TODO Check commit_index and update state machine accordingly
         
         if entries is not None:  # Not a heartbeat, entries to append
 
