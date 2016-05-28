@@ -118,8 +118,9 @@ class RaftService(rpyc.Service):
                                                   previous_log_index = None,
                                                   previous_log_term = None,
                                                   entries=None,
-                                                  commit_index=RaftService.commmit_index)
+                                                  commit_index=RaftService.commit_index)
             except Exception as details:
+                print details
                 RaftService.logger.info("send_heartbeat: Unable to connect to server %d" % peer[0])
 
     @staticmethod
@@ -173,6 +174,7 @@ class RaftService(rpyc.Service):
                 # TODO Need Review on this
                 RaftService.term = term
                 RaftService.voted_for = candidate_id
+                RaftService.have_i_vote_this_term = True
                 RaftService.node_dao.persist_vote_and_term()
 
         return my_vote
@@ -265,7 +267,7 @@ class RaftService(rpyc.Service):
         RaftService.reset_and_start_timer()
 
         # If my term is less than leader's, update my term
-        if leader_term > RaftService.term:
+        if leaders_term > RaftService.term:
             RaftService.term = leaders_term
 
         # If I think I am the LEADER/CANDIDATE, real LEADER sent me an appendRPC, step down
@@ -303,6 +305,8 @@ class RaftService(rpyc.Service):
             return (RaftService.term, SUCCESS, my_next_index)
 
         else:
+            if RaftService.leader_id != leaders_id:
+                RaftService.leader_id = leaders_id
             RaftService.logger.info("Received HeartBeat from %d, my leader is %d" % (leaders_id, RaftService.leader_id))
 
     @staticmethod
