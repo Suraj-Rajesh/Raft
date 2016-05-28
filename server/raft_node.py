@@ -175,7 +175,7 @@ class RaftService(rpyc.Service):
                 RaftService.term = term
                 RaftService.voted_for = candidate_id
                 RaftService.have_i_vote_this_term = True
-                RaftService.node_dao.persist_vote_and_term()
+                RaftService.node_dao.persist_vote_and_term(RaftService.voted_for,RaftService.term)
 
         return my_vote
 
@@ -300,7 +300,7 @@ class RaftService(rpyc.Service):
 
             # Log consistency check successful. Append entries to log, persist on disk, send SUCCESS
             RaftService.stable_log.append(entries)
-            RaftService.node_dao.persist_log()
+            RaftService.node_dao.persist_log(RaftService.stable_log)
             RaftService.logger.info("Reply to AppendRPC: Sending SUCCESS to %d" % leaders_id)
             return (RaftService.term, SUCCESS, my_next_index)
 
