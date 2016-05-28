@@ -233,7 +233,7 @@ class RaftService(rpyc.Service):
                         RaftService.logger.info("Unable to connect to server %d" % peer[0])
 
             except Exception as details:
-                print details
+                RaftService.logger.info(details)
 
     def replicate_state_machine(self):
         pass
@@ -243,7 +243,7 @@ class RaftService(rpyc.Service):
 
     def respond_to_client(self):
         # TODO Respond actually
-        print "Responded to client"
+        RaftService.logger.info("Responded to client")
 
     def update_indices_try_again(self):
         # TODO Waiting on append entries RPC impl
