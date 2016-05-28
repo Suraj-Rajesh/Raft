@@ -113,11 +113,14 @@ class RaftService(rpyc.Service):
         for peer in RaftService.peers:
             try:
                 connection = rpyc.connect(peer[1], peer[2], config={"allow_public_attrs": True})
-                connection.root.append_entriesRPC(term=RaftService.term,
+                connection.root.append_entriesRPC(leaders_term=RaftService.term,
+                                                  leaders_id = RaftService.server_id,
+                                                  previous_log_index = None,
+                                                  previous_log_term = None,
                                                   entries=None,
                                                   commit_index=RaftService.commmit_index)
             except Exception as details:
-                RaftService.logger.info("Unable to connect to server %d" % peer[0])
+                RaftService.logger.info("send_heartbeat: Unable to connect to server %d" % peer[0])
 
     @staticmethod
     def reset_and_start_timer():
@@ -147,7 +150,7 @@ class RaftService(rpyc.Service):
                     total_votes = total_votes + 1
 
             except Exception as details:
-                RaftService.logger.info("Unable to connect to server %d" % peer[0])
+                RaftService.logger.info("request_votes: Unable to connect to server %d" % peer[0])
 
         # +1 to account for self-vote
         return total_votes + 1
@@ -164,6 +167,7 @@ class RaftService(rpyc.Service):
             log_index, log_term = self.get_last_log_index_and_term()
             if last_log_term >= log_term and last_log_index >= log_index:
                 my_vote = True
+                RaftService.reset_and_start_timer()
                 RaftService.logger.info("Voting YES to candidate %s" % candidate_id)
                 RaftService.voted_for = candidate_id
                 # TODO Need Review on this
@@ -217,8 +221,8 @@ class RaftService(rpyc.Service):
                     RaftService.update_indices_try_again()
                     try:
                         connection = rpyc.connect(peer[1], peer[2], config={"allow_public_attrs": True})
-                        term, status, next_index = connection.root.append_entriesRPC(term=RaftService.term,
-                                                                                     leader_id=RaftService.server_id,
+                        term, status, next_index = connection.root.append_entriesRPC(leaders_term=RaftService.term,
+                                                                                     leaders_id=RaftService.server_id,
                                                                                      previous_log_index=previous_log_index,
                                                                                      previous_log_term=previous_log_term,
                                                                                      entries=entries,
@@ -230,7 +234,7 @@ class RaftService(rpyc.Service):
                             break
 
                     except Exception as details:
-                        RaftService.logger.info("Unable to connect to server %d" % peer[0])
+                        RaftService.logger.info("replicate_log: Unable to connect to server %d" % peer[0])
 
             except Exception as details:
                 RaftService.logger.info(details)
@@ -250,10 +254,10 @@ class RaftService(rpyc.Service):
         pass
 
     def exposed_append_entriesRPC(self,
-                                  leader_term,
+                                  leaders_term,
                                   leaders_id,
-                                  leader_prev_log_index,
-                                  leader_prev_log_term,
+                                  previous_log_index,
+                                  previous_log_term,
                                   entries,
                                   commit_index):
 
@@ -262,7 +266,7 @@ class RaftService(rpyc.Service):
 
         # If my term is less than leader's, update my term
         if leader_term > RaftService.term:
-            RaftService.term = leader_term
+            RaftService.term = leaders_term
 
         # If I think I am the LEADER/CANDIDATE, real LEADER sent me an appendRPC, step down
         if RaftService.state == LEADER or RaftService.state == CANDIDATE:
@@ -282,13 +286,13 @@ class RaftService(rpyc.Service):
             my_next_index = my_prev_log_index + 1
 
             # Check if next index matches. If not, send Inconsistency error and next index of the Follower
-            if leader_prev_log_index != my_prev_log_index:
+            if previous_log_index != my_prev_log_index:
                 RaftService.logger.info("Reply to AppendRPC: Sending NEXT_INDEX_INCONSISTENCY to  %d" % leaders_id)
                 return (RaftService.term, NEXT_INDEX_INCONSISTENCY, my_next_index)
 
             # Check if previous log entry matches previous log term
             # If not, send Term Inconsistency error and next index of the Follower
-            if leader_prev_log_term != my_prev_log_entry_term:
+            if previous_log_term != my_prev_log_entry_term:
                 RaftService.logger.info("Reply to AppendRPC: Sending TERM_INCONSISTENCY to  %d" % leaders_id)
                 return (RaftService.term, TERM_INCONSISTENCY, my_next_index)
 
