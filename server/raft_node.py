@@ -139,6 +139,7 @@ class RaftService(rpyc.Service):
         # For now we assume that the network wont fail
         for peer in RaftService.peers:
             try:
+                vote = False
                 connection = rpyc.connect(peer[1], peer[2], config={"allow_public_attrs": True})
                 vote = connection.root.requestRPC(term=RaftService.term,
                                                   candidate_id=RaftService.server_id,
