@@ -18,12 +18,11 @@ NEXT_INDEX_INCONSISTENCY = "NEXT_INDEX_INCONSISTENCY"
 
 
 class RaftService(rpyc.Service):
-
     config_reader = ConfigReader("../config/config.ini")
     node_dao = NodeDAO()
 
     # stable log => (index, term, value, commit_status)
-    term, voted_for,stable_log = node_dao.initialize_persistence_files(0, -1, list())
+    term, voted_for, stable_log = node_dao.initialize_persistence_files(0, -1, list())
 
     # TODO @Suraj, Can you move this to a method?
     logger = logging.getLogger("raft_node")
@@ -114,9 +113,9 @@ class RaftService(rpyc.Service):
             try:
                 connection = rpyc.connect(peer[1], peer[2], config={"allow_public_attrs": True})
                 connection.root.append_entriesRPC(leaders_term=RaftService.term,
-                                                  leaders_id = RaftService.server_id,
-                                                  previous_log_index = None,
-                                                  previous_log_term = None,
+                                                  leaders_id=RaftService.server_id,
+                                                  previous_log_index=None,
+                                                  previous_log_term=None,
                                                   entries=None,
                                                   commit_index=RaftService.commit_index)
             except Exception as details:
@@ -176,35 +175,35 @@ class RaftService(rpyc.Service):
                 RaftService.term = term
                 RaftService.voted_for = candidate_id
                 RaftService.have_i_vote_this_term = True
-                RaftService.node_dao.persist_vote_and_term(RaftService.voted_for,RaftService.term)
+                RaftService.node_dao.persist_vote_and_term(RaftService.voted_for, RaftService.term)
 
         return my_vote
 
     def exposed_lookupRPC(self):
         return RaftService.blog
 
-    def exposed_postRPC(self, blog,client_id):
+    def exposed_postRPC(self, blog, client_id):
 
         return_value = False
-        
-        RaftService.logger.info("Received Post from client %s"%client_id)
+
+        RaftService.logger.info("Received Post from client %s" % client_id)
         if RaftService.server_id != RaftService.leader_id:
             try:
                 (ip, port) = RaftService.config_reader.get_leaders_port_ip(RaftService.leader_id, RaftService.peers)
                 connection = rpyc.connect(ip, port, config={"allow_public_attrs": True})
-                return_value = connection.root.exposed_post_leaderRPC(blog,client_id)
-            
+                return_value = connection.root.exposed_post_leaderRPC(blog, client_id)
+
             except Exception as details:
                 RaftService.logger.info(details)
         else:
-            return_value = self.append_entries(blog,client_id)
+            return_value = self.append_entries(blog, client_id)
 
         return return_value
 
-    def exposed_post_leaderRPC(self, blog,client_id):
+    def exposed_post_leaderRPC(self, blog, client_id):
 
-        RaftService.logger.info("Received Post from client %s"%client_id)
-        return self.append_entries(blog,client_id)
+        RaftService.logger.info("Received Post from client %s" % client_id)
+        return self.append_entries(blog, client_id)
 
     def append_entries(self, blog, client_id):
         # This code is to be executed by the LEADER
@@ -215,7 +214,7 @@ class RaftService(rpyc.Service):
         # 1 Replicate the blog
         # (index, term, value, commit_status)
         previous_log_index, previous_log_term = RaftService.get_last_log_index_and_term()
-        RaftService.logger.info("Prev Index %s Prev Term %s"%(previous_log_index, previous_log_term))
+        RaftService.logger.info("Prev Index %s Prev Term %s" % (previous_log_index, previous_log_term))
         entry = (previous_log_index + 1, RaftService.term, blog, False)
         RaftService.stable_log.append(entry)
         entries = list()
@@ -227,7 +226,7 @@ class RaftService(rpyc.Service):
 
             if total_votes >= RaftService.majority_criteria:
                 RaftService.logger.info(
-                    "Reached consensus to replicate %s, %s" % (previous_log_index + 1, RaftService.term))
+                        "Reached consensus to replicate %s, %s" % (previous_log_index + 1, RaftService.term))
                 RaftService.apply_log_on_state_machine(blog)
             else:
                 RaftService.logger.info("Reached no majority")
@@ -242,40 +241,38 @@ class RaftService(rpyc.Service):
 
         # TODO Redundant Code Ah Man!
         for peer in RaftService.peers:
-            try:
-                # TODO For now, as the dude doesnt fail, the entries are what client asks to replicate
-                # TODO Remove this dangerous guy at once!
-                # TODO Does it make sense to sleep for a while and try again network failure errors
-                while True:
 
-                    RaftService.update_indices_try_again()
-                    try:
-                        connection = rpyc.connect(peer[1], peer[2], config={"allow_public_attrs": True})
-                        term, status, next_index = connection.root.append_entriesRPC(leaders_term=RaftService.term,
-                                                                                     leaders_id=RaftService.server_id,
-                                                                                     previous_log_index=previous_log_index,
-                                                                                     previous_log_term=previous_log_term,
-                                                                                     entries=entries,
-                                                                                     commit_index=RaftService.commit_index)
+            # TODO For now, as the dude doesnt fail, the entries are what client asks to replicate
+            # TODO Remove this dangerous guy at once!
+            # TODO Does it make sense to sleep for a while and try again network failure errors
+            while True:
 
-                        if status == SUCCESS:
-                            RaftService.logger.info("Received Success from %s" %peer[0])
-                            total_votes = total_votes + 1
-                            # next_index = previous_log_index+1
-                            break
+                RaftService.update_indices_try_again()
+                try:
+                    connection = rpyc.connect(peer[1], peer[2], config={"allow_public_attrs": True})
+                    term, status, next_index = connection.root.append_entriesRPC(leaders_term=RaftService.term,
+                                                                                 leaders_id=RaftService.server_id,
+                                                                                 previous_log_index=previous_log_index,
+                                                                                 previous_log_term=previous_log_term,
+                                                                                 entries=entries,
+                                                                                 commit_index=RaftService.commit_index)
 
-                        elif status == TERM_INCONSISTENCY or status == NEXT_INDEX_INCONSISTENCY:
-                            RaftService.logger.info("Received term inconsistency from %s. Next index %s Term %s" %(peer[0],term,next_index)
-                            entries, previous_log_term= self.get_entries_from_index((next_index - 1))
-                            previous_log_index = next_index - 1
-                        else:
-                            RaftService.logger.info("Shouldnt have reached here. something is wrong")
-                    
-                    except Exception as details:
-                        RaftService.logger.info("replicate_log: Unable to connect to server %d" % peer[0])
+                    if status == SUCCESS:
+                        RaftService.logger.info("Received Success from %s" % peer[0])
+                        total_votes = total_votes + 1
+                        # next_index = previous_log_index+1
+                        break
 
-            except Exception as details:
-                RaftService.logger.info(details)
+                    elif status == TERM_INCONSISTENCY or status == NEXT_INDEX_INCONSISTENCY:
+                        RaftService.logger.info("Received term inconsistency from %s. Next index %s Term %s" % (
+                            peer[0], term, next_index))
+                        entries, previous_log_term = self.get_entries_from_index((next_index - 1))
+                        previous_log_index = next_index - 1
+                    else:
+                        RaftService.logger.info("Shouldnt have reached here. something is wrong")
+
+                except Exception as details:
+                    RaftService.logger.info("replicate_log: Unable to connect to server %d" % peer[0])
 
         return total_votes
 
@@ -286,8 +283,7 @@ class RaftService(rpyc.Service):
         for i in range(index, len(RaftService.stable_log)):
             entries.append(RaftService.stable_log[i])
 
-        return entries,previous_log_term
-
+        return entries, previous_log_term
 
     def replicate_state_machine(self):
         pass
@@ -307,15 +303,16 @@ class RaftService(rpyc.Service):
                                   entries,
                                   commit_index):
 
-        RaftService.logger.info("You have Successfully made the RPC call to %s from %s"%(RaftService.server_id, leaders_id))
+        RaftService.logger.info(
+                "You have Successfully made the RPC call to %s from %s" % (RaftService.server_id, leaders_id))
 
-        #TODO Isnt this for heartbeat alone? Seems like overkill @SURAJ
+        # TODO Isnt this for heartbeat alone? Seems like overkill @SURAJ
         # AppendRPC received, need to reset my election timer
         RaftService.reset_and_start_timer()
 
         # If my term is less than leader's, update my term
         if leaders_term > RaftService.term:
-            #real LEADER sent me an appendRPC, may be I am an old leader who needs to be neutralized
+            # real LEADER sent me an appendRPC, may be I am an old leader who needs to be neutralized
             if RaftService.state == LEADER:
                 RaftService.heartBeatTimer.cancel()
                 RaftService.state = FOLLOWER
@@ -337,21 +334,21 @@ class RaftService(rpyc.Service):
 
             # Check if next index matches. If not, send Inconsistency error and next index of the Follower
             if previous_log_index != my_prev_log_index:
-                my_next_index = my_next_index - 1 
+                my_next_index = my_next_index - 1
                 RaftService.logger.info("Reply to AppendRPC: Sending NEXT_INDEX_INCONSISTENCY to  %d" % leaders_id)
                 return (RaftService.term, NEXT_INDEX_INCONSISTENCY, my_next_index)
 
             # Check if previous log entry matches previous log term
             # If not, send Term Inconsistency error and next index of the Follower
             if previous_log_term != my_prev_log_entry_term:
-                my_next_index = my_next_index - 1 
+                my_next_index = my_next_index - 1
                 RaftService.logger.info("Reply to AppendRPC: Sending TERM_INCONSISTENCY to  %d" % leaders_id)
                 return (RaftService.term, TERM_INCONSISTENCY, my_next_index)
 
             # Log consistency check successful. Append entries to log, persist on disk, send SUCCESS
             for entry in entries:
                 RaftService.stable_log.append(entry)
-                #TODO not sure if this is needed
+                # TODO not sure if this is needed
                 my_next_index = my_next_index + 1
 
             RaftService.logger.info("Log after appending ...")
@@ -378,7 +375,8 @@ class RaftService(rpyc.Service):
 
     def print_stable_log(self):
         for tuple in RaftService.stable_log:
-            RaftService.logger.info("%s %s %s %s"%(tuple[0],tuple[1],tup1e[2],tup1e[3]))
+            RaftService.logger.info("%s %s %s %s" % (tuple[0], tuple[1], tuple[2], tuple[3]))
+
 
 if __name__ == "__main__":
     RaftService.logger.info("Starting Server %d with Peers %s" % (RaftService.server_id, RaftService.peers))
