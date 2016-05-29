@@ -180,11 +180,13 @@ class RaftService(rpyc.Service):
 
         return my_vote
 
-    def exposed_lookupRPC():
-        pass
+    def exposed_lookupRPC(self):
+        return RaftService.blog
 
     def exposed_postRPC(self, blog,client_id):
 
+        return_value = False
+        
         RaftService.logger.info("Received Post from client %s"%client_id)
         if RaftService.server_id != RaftService.leader_id:
             try:
@@ -195,18 +197,18 @@ class RaftService(rpyc.Service):
             except Exception as details:
                 RaftService.logger.info(details)
         else:
-            self.append_entries(blog,client_id)
+            return_value = self.append_entries(blog,client_id)
+
+        return return_value
 
     def exposed_post_leaderRPC(self, blog,client_id):
 
         RaftService.logger.info("Received Post from client %s"%client_id)
-        self.append_entries(blog,client_id)
+        return self.append_entries(blog,client_id)
 
     def append_entries(self, blog, client_id):
         # This code is to be executed by the LEADER
         # The driver of this method is Client or Followers forwarding client requests
-
-
 
         RaftService.logger.info("Received a call finally from some dude. Take it from here")
 
@@ -227,14 +229,16 @@ class RaftService(rpyc.Service):
                 RaftService.logger.info(
                     "Reached consensus to replicate %s, %s" % (previous_log_index + 1, RaftService.term))
                 RaftService.apply_log_on_state_machine(blog)
-
             else:
                 RaftService.logger.info("Reached no majority")
-
         else:
             RaftService.logger.info("I aint no leader. Somebody called me by accident!")
 
+        return True
+
     def replicate_log(self, entries, previous_log_index, previous_log_term):
+
+        total_votes = 0
 
         # TODO Redundant Code Ah Man!
         for peer in RaftService.peers:
@@ -273,6 +277,8 @@ class RaftService(rpyc.Service):
             except Exception as details:
                 RaftService.logger.info(details)
 
+        return total_votes
+
     def get_entries_from_index(index):
         entries = list()
         tuple_ = RaftService.stable_log[index]
@@ -288,10 +294,6 @@ class RaftService(rpyc.Service):
 
     def apply_log_on_state_machine(self, blog):
         RaftService.blog.append(blog)
-
-    def respond_to_client(self):
-        # TODO Respond actually
-        RaftService.logger.info("Responded to client")
 
     def update_indices_try_again(self):
         # TODO Waiting on append entries RPC impl

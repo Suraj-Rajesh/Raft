@@ -34,6 +34,19 @@ class Client(object):
 
         return return_value
 
+    def lookup(self, server_id):
+
+        server_ip   = self.servers[server_id][1]
+        server_port = self.servers[server_id][2]
+        return_value = None
+        try:
+            connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
+            return_value = connection.root.exposed_lookupRPC()
+        except Exception as details:
+            print "Server down..."
+
+        return return_value
+
     def start_console(self):
 
         print "\nClient running..."
@@ -53,7 +66,7 @@ class Client(object):
             elif command_parse[0] == "LOOKUP":
                 print "Lookup..."
                 server_id = int(command_parse[1])
-                pass
+                print (self.lookup(server_id))
             
             elif int(command) == 0:
                 sys.exit(0)
