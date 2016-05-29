@@ -48,12 +48,25 @@ class Client(object):
 
         return return_value
 
+    def change_config_of_network(self, list_of_changes,server_id):
+        server_ip   = self.servers[server_id][1]
+        server_port = self.servers[server_id][2]
+        return_value = None
+        try:
+            connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
+            return_value = connection.root.exposed_config_changeRPC(list_of_config_changes =list_of_changes, client_id=self.client_id)
+        except Exception as details:
+            print "Server down..."
+
+        return return_value
+
+
     def start_console(self):
 
         print "\nClient running..."
 
         while True:
-            command = raw_input("\nOperations allowed: \nPOST <server id> message\nLOOKUP <server id>\nEnter 0 to EXIT\nEnter operation: ")
+            command = raw_input("\nOperations allowed: \nPOST <server id> message\nLOOKUP <server id>\nCONFIG <server_to_send_to> \nEnter 0 to EXIT\nEnter operation: ")
 
             command_parse = command.split()
 
@@ -68,6 +81,30 @@ class Client(object):
                 print "Lookup..."
                 server_id = int(command_parse[1])
                 print (self.lookup(server_id))
+
+            elif command_parse[0] == "CONFIG":
+                config_change_list = list() #Follow the format above
+                server_id = int(command_parse[1])
+
+                while True:
+                    config_input = raw_input("Config Change Selected\n Please type ADD <server_id> <server_ip> <server_port> \n REMOVE <server_id> \n DONE\n")
+                    config_command = config_input.split()
+                    add_or_remove = config_command[0]
+                    
+                    if "ADD" == add_or_remove or "REMOVE" == add_or_remove:
+                        config_change_list.append(config_command)
+                    elif "DONE" == add_or_remove:
+                        if config_change_list:
+                            break
+                        else:
+                            print "Empty config change found!"
+                            break
+                    else:
+                        print "Wrong command. Exiting program."
+                        sys.exit(0)
+
+                return_value = self.change_config_of_network(config_change_list,server_id)
+                print return_value
             
             elif int(command) == 0:
                 sys.exit(0)

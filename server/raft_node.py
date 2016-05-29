@@ -179,6 +179,9 @@ class RaftService(rpyc.Service):
 
         return my_vote
 
+    def exposed_config_changeRPC(self, list_of_config_changes, client_id):
+        return True
+
     def exposed_lookupRPC(self):
         return RaftService.blog
 
