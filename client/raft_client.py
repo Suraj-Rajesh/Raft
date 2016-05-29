@@ -9,6 +9,7 @@ class Client(object):
         self.config_reader = ConfigReader("client_config.ini")
         self.total_nodes = self.config_reader.get_total_nodes()
         self.servers = self.config_reader.get_peers(self.total_nodes)
+        self.client_id = 999
 
     def connect(self, server_id):
         # Get server details
@@ -20,7 +21,20 @@ class Client(object):
             print "Server down..."
             self.connection = None
 
-    def start_console(self):
+    def post(self, msg,server_id):
+
+        server_ip   = self.servers[server_id][1]
+        server_port = self.servers[server_id][2]
+        return_value = None
+        try:
+            connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
+             return_value = connection.root.exposed_postRPC(blog=msg,client_id=self.client_id)
+        except Exception as details:
+            print "Server down..."
+
+        return return_value
+
+     def start_console(self):
     
         print "\nClient running..."
 
@@ -33,6 +47,8 @@ class Client(object):
                 print "Posting..."
                 server_id = int(command_parse[1])
                 msg = command_parse[2]
+                return_value = post(msg,server_id)
+                print return_value
 
             elif command_parse[0] == "LOOKUP":
                 print "Lookup..."

@@ -180,12 +180,36 @@ class RaftService(rpyc.Service):
 
         return my_vote
 
+    def exposed_lookupRPC():
+        pass
+
+    def exposed_postRPC(self, blog,client_id):
+
+        RaftService.logger.info("Received Post from client %s"%client_id)
+        if RaftService.server_id != RaftService.leader_id:
+            try:
+                (ip, port) = RaftService.config_reader.get_leaders_port_ip(RaftService.leader_id, RaftService.peers)
+                connection = rpyc.connect(ip, port, config={"allow_public_attrs": True})
+                return_value = connection.root.exposed_post_leaderRPC(blog,client_id)
+            
+            except Exception as details:
+                RaftService.logger.info(details)
+        else:
+            RaftService.append_entries(blog,client_id)
+
+    def exposed_post_leaderRPC(self, blog,client_id):
+
+        RaftService.logger.info("Received Post from client %s"%client_id)
+        RaftService.append_entries(blog,client_id)
+
     def append_entries(self, blog, client_id):
         # This code is to be executed by the LEADER
         # The driver of this method is Client or Followers forwarding client requests
 
         entries = list()
         entries.append(blog)
+
+        RaftService.logger.info("Received a call finally from some dude. Fix it from here")
 
         # 1 Replicate the blog
         # (index, term, value, commit_status)

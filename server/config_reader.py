@@ -7,6 +7,13 @@ class ConfigReader:
         self.config = ConfigParser.ConfigParser()
         self.config.read(config_file_path)
 
+    def get_leaders_port_ip(leader_id, peers):
+        for peer in peers:
+            if peer[0] == leader_id:
+                return (peer[1],peer[2])
+        
+        return None
+
     def get_peers(self, server_id, total_servers):
         peers = list()
         for i in [x for x in range(total_servers) if x != server_id]:
