@@ -222,12 +222,12 @@ class RaftService(rpyc.Service):
 
         # 2 Send RPCs and wait for majority
         if RaftService.state == LEADER:
-            total_votes = RaftService.replicate_log(entries, previous_log_index, previous_log_term) + 1
+            total_votes = self.replicate_log(entries, previous_log_index, previous_log_term) + 1
 
             if total_votes >= RaftService.majority_criteria:
                 RaftService.logger.info(
                         "Reached consensus to replicate %s, %s" % (previous_log_index + 1, RaftService.term))
-                RaftService.apply_log_on_state_machine(blog)
+                self.apply_log_on_state_machine(blog)
             else:
                 RaftService.logger.info("Reached no majority")
         else:

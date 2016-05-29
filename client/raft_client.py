@@ -31,6 +31,7 @@ class Client(object):
             return_value = connection.root.exposed_postRPC(blog=msg,client_id=self.client_id)
         except Exception as details:
             print "Server down..."
+            print details
 
         return return_value
 
