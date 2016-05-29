@@ -235,7 +235,7 @@ class RaftService(rpyc.Service):
 
         return True
 
-    def replicate_log(self, entries, previous_log_index, previous_log_term):
+    def replicate_log(self, entries, prev_log_index, prev_log_term):
 
         total_votes = 0
 
@@ -245,9 +245,10 @@ class RaftService(rpyc.Service):
             # TODO For now, as the dude doesnt fail, the entries are what client asks to replicate
             # TODO Remove this dangerous guy at once!
             # TODO Does it make sense to sleep for a while and try again network failure errors
-            while True:
+            previous_log_index = prev_log_index
+            previous_log_term = prev_log_term
 
-                RaftService.update_indices_try_again()
+            while True:
                 try:
                     connection = rpyc.connect(peer[1], peer[2], config={"allow_public_attrs": True})
                     term, status, next_index = connection.root.append_entriesRPC(leaders_term=RaftService.term,
@@ -260,7 +261,6 @@ class RaftService(rpyc.Service):
                     if status == SUCCESS:
                         RaftService.logger.info("Received Success from %s" % peer[0])
                         total_votes = total_votes + 1
-                        # next_index = previous_log_index+1
                         break
 
                     elif status == TERM_INCONSISTENCY or status == NEXT_INDEX_INCONSISTENCY:
@@ -290,10 +290,6 @@ class RaftService(rpyc.Service):
 
     def apply_log_on_state_machine(self, blog):
         RaftService.blog.append(blog)
-
-    def update_indices_try_again(self):
-        # TODO Waiting on append entries RPC impl
-        pass
 
     def exposed_append_entriesRPC(self,
                                   leaders_term,
