@@ -195,12 +195,12 @@ class RaftService(rpyc.Service):
             except Exception as details:
                 RaftService.logger.info(details)
         else:
-            RaftService.append_entries(blog,client_id)
+            self.append_entries(blog,client_id)
 
     def exposed_post_leaderRPC(self, blog,client_id):
 
         RaftService.logger.info("Received Post from client %s"%client_id)
-        RaftService.append_entries(blog,client_id)
+        self.append_entries(blog,client_id)
 
     def append_entries(self, blog, client_id):
         # This code is to be executed by the LEADER

@@ -28,14 +28,14 @@ class Client(object):
         return_value = None
         try:
             connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
-             return_value = connection.root.exposed_postRPC(blog=msg,client_id=self.client_id)
+            return_value = connection.root.exposed_postRPC(blog=msg,client_id=self.client_id)
         except Exception as details:
             print "Server down..."
 
         return return_value
 
-     def start_console(self):
-    
+    def start_console(self):
+
         print "\nClient running..."
 
         while True:
@@ -47,7 +47,7 @@ class Client(object):
                 print "Posting..."
                 server_id = int(command_parse[1])
                 msg = command_parse[2]
-                return_value = post(msg,server_id)
+                return_value = self.post(msg,server_id)
                 print return_value
 
             elif command_parse[0] == "LOOKUP":
