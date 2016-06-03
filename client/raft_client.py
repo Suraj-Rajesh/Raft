@@ -80,7 +80,11 @@ class Client(object):
             elif command_parse[0] == "LOOKUP":
                 print "Lookup..."
                 server_id = int(command_parse[1])
-                print (self.lookup(server_id))
+		blogs = self.lookup(server_id)
+		if blogs is not None:
+		    print blogs
+		else:
+		    print "No blogs to display"
 
             elif command_parse[0] == "CONFIG":
                 config_change_list = list() #Follow the format above

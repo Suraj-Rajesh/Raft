@@ -16,7 +16,7 @@ SUCCESS = "SUCCESS"
 TERM_INCONSISTENCY = "TERM_INCONSISTENCY"
 NEXT_INDEX_INCONSISTENCY = "NEXT_INDEX_INCONSISTENCY"
 
-
+# TODO Make blog persistent
 class RaftService(rpyc.Service):
     config_reader = ConfigReader("../config/config.ini")
     node_dao = NodeDAO()
@@ -40,14 +40,15 @@ class RaftService(rpyc.Service):
     total_nodes = int(config_reader.get_total_nodes())
     timeout_parameter = int(config_reader.get_election_timeout_period())
     peers = config_reader.get_peers(server_id, total_nodes)
-    heartBeatInterval = config_reader.get_heartbeat_interval()
+    heartBeatInterval = int(config_reader.get_heartbeat_interval())
     majority_criteria = int(config_reader.get_majority_criteria())
     interrupt = False
     leader_id = -1
-    have_i_vote_this_term = False
 
+    # TODO Need this?
     next_indices = dict()
     match_indices = dict()
+
     commit_index = -1
     blog = list()
 
@@ -72,7 +73,6 @@ class RaftService(rpyc.Service):
         RaftService.logger.info("Starting election for server %s" % (RaftService.server_id))
         RaftService.state = CANDIDATE
         RaftService.term = RaftService.term + 1
-        RaftService.have_i_vote_this_term = True
         # TODO You have to reset this to False when the term changes
         total_votes = RaftService.request_votes()
 
@@ -151,6 +151,7 @@ class RaftService(rpyc.Service):
                     total_votes = total_votes + 1
 
             except Exception as details:
+		print details
                 RaftService.logger.info("request_votes: Unable to connect to server %d" % peer[0])
 
         # +1 to account for self-vote
@@ -159,13 +160,17 @@ class RaftService(rpyc.Service):
     def exposed_requestRPC(self, term, candidate_id, last_log_index, last_log_term):
 
         my_vote = False
-        if RaftService.have_i_vote_this_term:
+	RaftService.logger.info("Received requestRPC: candidate term: %d, my_term: %d" % (term, RaftService.term))
+        if RaftService.term == term:
             RaftService.logger.info("Server %s has already vote this term (%s) to %s" % (
                 RaftService.server_id, RaftService.term, RaftService.voted_for))
+
         elif term < RaftService.term:
             RaftService.logger.info("Stale term of candidate %s" % candidate_id)
-        else:
+
+        elif term > RaftService.term:
             log_index, log_term = self.get_last_log_index_and_term()
+	    RaftService.logger.info("In requestRPC: candidate_last_log_term: %d, my_last_log_term: %d, candidate_last_log_index: %d, my_last_log_index: %d" %(last_log_term, log_term, last_log_index, log_index))
             if last_log_term >= log_term and last_log_index >= log_index:
                 my_vote = True
                 RaftService.reset_and_start_timer()
@@ -174,8 +179,9 @@ class RaftService(rpyc.Service):
                 # TODO Need Review on this
                 RaftService.term = term
                 RaftService.voted_for = candidate_id
-                RaftService.have_i_vote_this_term = True
                 RaftService.node_dao.persist_vote_and_term(RaftService.voted_for, RaftService.term)
+	else:
+	    RaftService.logger.info("Something went wrong. Shouldn't print this...")
 
         return my_vote
 
@@ -183,7 +189,8 @@ class RaftService(rpyc.Service):
         return True
 
     def exposed_lookupRPC(self):
-        return RaftService.blog
+	blogs = RaftService.blog
+        return blogs
 
     def exposed_postRPC(self, blog, client_id):
 
