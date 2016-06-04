@@ -257,10 +257,12 @@ class RaftService(rpyc.Service):
             except Exception as details:
                 RaftService.logger.info(details)
         else:
-            joint_config_change_success = self.append_entries(list_of_config_changes, client_id, mode=JOINT_CONFIGURATION)
+
+            entry = (JOINT_CONFIGURATION, list_of_config_changes)
+            joint_config_change_success = self.append_entries(entry, client_id)
             if joint_config_change_success:
                 # Joint consensus is running. So start new config now
-                new_config_change_success = self.append_entries(list_of_config_changes, client_id, mode=NEW_CONFIGURATION)
+                new_config_change_success = self.append_entries((NEW_CONFIGURATION,list_of_config_changes), client_id)
                 if new_config_change_success:
                     RaftService.logger.info("Successfully changed the configuration of the system.")
                 else:
@@ -275,11 +277,11 @@ class RaftService(rpyc.Service):
         new_config_change_success = False
 
         RaftService.logger.info("Received Configuration via Redirection from client %s" % client_id)
-        joint_config_change_success = self.append_entries(list_of_config_changes, client_id, mode=JOINT_CONFIGURATION)
+        joint_config_change_success = self.append_entries((JOINT_CONFIGURATION,list_of_config_changes), client_id)
 
         if joint_config_change_success:
             # Joint consensus is running. So start new config now
-            new_config_change_success = self.append_entries(list_of_config_changes, client_id, mode=NEW_CONFIGURATION)
+            new_config_change_success = self.append_entries((NEW_CONFIGURATION,list_of_config_changes), client_id)
             if new_config_change_success:
                 RaftService.logger.info("Successfully changed the configuration of the system.")
             else:
@@ -318,11 +320,9 @@ class RaftService(rpyc.Service):
         return self.append_entries(blog, client_id)
 
 
-    def append_entries(self, item_to_replicate, client_id, mode=BLOG_REPLICATION):
+    def append_entries(self, item_to_replicate, client_id):
         # This code is to be executed by the LEADER
         # The driver of this method is Client or Followers forwarding client requests
-
-        RaftService.logger.info("Received a call finally from some dude. Take it from here")
 
         # 1 Replicate the item_to_replicate
         # (index, term, value, commit_status)
@@ -344,7 +344,7 @@ class RaftService(rpyc.Service):
                 RaftService.logger.info(
                         "Reached consensus to replicate %s, %s" % (previous_log_index + 1, RaftService.term))
                 RaftService.commit_index = RaftService.commit_index + 1
-                self.apply_log_on_state_machine(item_to_replicate, mode)
+                self.update_state_machine()
             else:
                 RaftService.logger.info("Reached no majority")
         else:
@@ -390,6 +390,7 @@ class RaftService(rpyc.Service):
 
                 except Exception as details:
                     RaftService.logger.warning("replicate_log: Unable to connect to server %d" % peer[0])
+                    #TODO put the thread to sleep and try again. Cos we try again
 
         return total_votes
 
@@ -404,17 +405,15 @@ class RaftService(rpyc.Service):
         return entries, previous_log_term
 
 
-    def replicate_state_machine(self):
-        pass
+    def run_config_change(self, log_entry):
+        
+        config_object = log_entry[2]
+        mode = config_object[0]
+        item_to_replicate = config_object[1]
 
+        RaftService.logger.info("Running configuration change now -%s"%mode)
 
-    def apply_log_on_state_machine(self, item_to_replicate, mode=BLOG_REPLICATION):
-        RaftService.logger.info(item_to_replicate)
-
-        if BLOG_REPLICATION == mode:
-            RaftService.blog.append(item_to_replicate)
-
-        elif JOINT_CONFIGURATION == mode:
+        if JOINT_CONFIGURATION == mode:
             new_majority_criteria, new_total_nodes, new_peers = self.get_new_config(item_to_replicate)
             self.switch_to_joint_config(new_majority_criteria, new_total_nodes, new_peers)
 
@@ -457,6 +456,9 @@ class RaftService(rpyc.Service):
                                   previous_log_term,
                                   entries,
                                   commit_index):
+
+
+        RaftService.logger.info("In method append entries RPC %s"%entries)
         # TODO Isnt this for heartbeat alone? Seems like overkill @SURAJ
         # AppendRPC received, need to reset my election timer
         RaftService.reset_and_start_timer()
@@ -523,9 +525,19 @@ class RaftService(rpyc.Service):
 
         # Check if stable_log exists till commit_index
         if RaftService.commit_index <= (len(RaftService.stable_log) - 1):
-            new_blogs = [log[2] for log in RaftService.stable_log[len(RaftService.blog):RaftService.commit_index + 1]]
+
+            new_blogs = list()
+            for i in range(len(RaftService.blog),RaftService.commit_index+1):
+                current_entry = RaftService.stable_log[i]
+                value = current_entry[2]
+                if not isinstance(value, basestring):
+                    RaftService.logger.info(value)
+                    self.run_config_change(value)
+                new_blogs.append(value)
+
             RaftService.logger.info("Appending %s", new_blogs)
             RaftService.blog = RaftService.blog + new_blogs
+
             # Persist blog
             RaftService.node_dao.persist_blog(RaftService.blog)
         else:

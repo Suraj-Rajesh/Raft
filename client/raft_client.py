@@ -49,6 +49,7 @@ class Client(object):
             connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
             return_value = connection.root.exposed_config_changeRPC(list_of_config_changes =list_of_changes, client_id=self.client_id)
         except Exception as details:
+            print details
             print "Server down..."
 
         return return_value
