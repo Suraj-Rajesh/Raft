@@ -161,9 +161,14 @@ class RaftService(rpyc.Service):
 
         my_vote = False
 	RaftService.logger.info("Received requestRPC: candidate term: %d, my_term: %d" % (term, RaftService.term))
+
         if RaftService.term == term:
-            RaftService.logger.info("Server %s has already vote this term (%s) to %s" % (
-                RaftService.server_id, RaftService.term, RaftService.voted_for))
+	    # Check if I had voted to this candidate previously for this term. If YES, re-iterate my vote
+	    if RaftService.voted_for == candidate_id:
+		my_vote = True
+	    else:	    
+            	RaftService.logger.info("Server %s has already vote this term (%s) to %s" % (
+                    RaftService.server_id, RaftService.term, RaftService.voted_for))
 
         elif term < RaftService.term:
             RaftService.logger.info("Stale term of candidate %s" % candidate_id)
@@ -404,7 +409,7 @@ class RaftService(rpyc.Service):
 
 
 if __name__ == "__main__":
-    RaftService.logger.info("Starting Server %d with Peers %s" % (RaftService.server_id, RaftService.peers))
+    RaftService.logger.info("Starting Server %d with Peers %s Term: %d Voted_for: %d" % (RaftService.server_id, RaftService.peers, RaftService.term, RaftService.voted_for))
     RaftService.start_election_timer()
     my_port = RaftService.id_ip_port[2]
     t = ThreadedServer(RaftService, port=my_port, protocol_config={"allow_public_attrs": True})
