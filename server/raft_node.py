@@ -37,7 +37,7 @@ class RaftService(rpyc.Service):
     formatter = logging.Formatter("%(levelname)s %(message)s")
     log_handler.setFormatter(formatter)
     logger.addHandler(log_handler)
-    logger.setLevel(logging.WARNING)
+    logger.setLevel(logging.INFO)
 
     state = FOLLOWER
     electionTimer = 0
@@ -167,6 +167,7 @@ class RaftService(rpyc.Service):
 	    # Check if I had voted to this candidate previously for this term. If YES, re-iterate my vote
 	    if RaftService.voted_for == candidate_id:
 		my_vote = True
+                RaftService.node_dao.persist_vote_and_term(RaftService.voted_for, RaftService.term)
 	    else:	    
             	RaftService.logger.info("Server %s has already vote this term (%s) to %s" % (
                     RaftService.server_id, RaftService.term, RaftService.voted_for))
@@ -181,7 +182,6 @@ class RaftService(rpyc.Service):
                 my_vote = True
                 RaftService.reset_and_start_timer()
                 RaftService.logger.info("Voting YES to candidate %s" % candidate_id)
-                RaftService.voted_for = candidate_id
                 # TODO Need Review on this
                 RaftService.term = term
                 RaftService.voted_for = candidate_id
