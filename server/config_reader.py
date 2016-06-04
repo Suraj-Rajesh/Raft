@@ -66,3 +66,12 @@ class ConfigReader:
         except Exception as details:
             print details
             return None
+
+    def get_new_peers_by_removing(self, id_server_to_remove, peers):
+        
+        new_peers = list()
+        for peer in peers:
+            if peer[0] != id_server_to_remove:
+                new_peers.append(peer)
+
+        return new_peers
