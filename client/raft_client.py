@@ -32,13 +32,12 @@ class Client(object):
         try:
             connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
             return_value = connection.root.lookupRPC()
-	    	
-	    	for blog in  return_value:
-				print blog
+            for blog in  return_value:
+                print blog
 
         except Exception as details:
             print "Server down..."
-	    	print details
+            print details
 
         return return_value
 
@@ -68,16 +67,16 @@ class Client(object):
                 print "Posting..."
                 server_id = int(command_parse[1])
                 msg = command_parse[2]
-				try:
-		            return_value = self.post(msg,server_id)
-		            print return_value
-				except Exception as details:
-				    print details
+                try:
+                    return_value = self.post(msg,server_id)
+                    print return_value
+                except Exception as details:
+                    print details
 
             elif command_parse[0] == "LOOKUP":
                 print "Lookup..."
                 server_id = int(command_parse[1])
-	        	blogger = self.lookup(server_id)
+                blogger = self.lookup(server_id)
 
             elif command_parse[0] == "CONFIG":
                 config_change_list = list() #Follow the format above
