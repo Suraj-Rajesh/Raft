@@ -20,7 +20,7 @@ class RaftService(rpyc.Service):
     config_reader = ConfigReader("../config/config.ini")
     node_dao = NodeDAO()
 
-    # stable log => (index, term, value, commit_status)
+    # stable log => (index, term, value)
     term, voted_for, stable_log, blog = node_dao.initialize_persistence_files(0, -1, list(), list())
 
     # Initializing commit_index based on blog
@@ -146,6 +146,7 @@ class RaftService(rpyc.Service):
                                                   last_log_index=last_index,
                                                   last_log_term=last_term)
 
+		RaftService.logger.info("Vote received: " + str(vote))
                 if vote:
                     RaftService.logger.info("Received vote from server %d for leader election, term %d"
                                             % (peer[0], RaftService.term))
@@ -318,9 +319,6 @@ class RaftService(rpyc.Service):
                                   previous_log_term,
                                   entries,
                                   commit_index):
-
-        RaftService.logger.info(
-                "You have Successfully made the RPC call to %s from %s" % (RaftService.server_id, leaders_id))
 
         # TODO Isnt this for heartbeat alone? Seems like overkill @SURAJ
         # AppendRPC received, need to reset my election timer

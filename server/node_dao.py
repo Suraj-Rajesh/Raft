@@ -50,7 +50,7 @@ class NodeDAO:
         if os.path.exists(self.path_to_persist_blog):
             blog = self.read_persisted_blog()
         else:
-            pickle.dump((voted_for, blog), open(self.path_to_persist_blog, "wb"))
+            pickle.dump(blog, open(self.path_to_persist_blog, "wb"))
 
         #Server Log
         if os.path.exists(self.path_to_server_log):
