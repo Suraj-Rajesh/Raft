@@ -65,7 +65,8 @@ class RaftService(rpyc.Service):
     total_nodes_old = int(config_reader.get_total_nodes())
     peers_old = config_reader.get_peers(server_id, total_nodes)
 
-    def check_majority(self, votes):
+    @staticmethod
+    def check_majority(votes):
         # During normal operation the criteria are the same values
         # During config change they will be different values
         if votes >= RaftService.majority_criteria and votes >= RaftService.majority_criteria_old:
@@ -339,7 +340,7 @@ class RaftService(rpyc.Service):
         if RaftService.state == LEADER:
             total_votes = self.replicate_log(entries, previous_log_index, previous_log_term) + 1
 
-            if self.check_majority(total_votes):
+            if RaftService.check_majority(total_votes):
                 RaftService.logger.info(
                         "Reached consensus to replicate %s, %s" % (previous_log_index + 1, RaftService.term))
                 RaftService.commit_index = RaftService.commit_index + 1
