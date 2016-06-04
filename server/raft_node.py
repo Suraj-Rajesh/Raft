@@ -382,7 +382,8 @@ class RaftService(rpyc.Service):
 	
 	# Check if stable_log exists till commit_index
 	if RaftService.commit_index <= (len(RaftService.stable_log) - 1):
-	    RaftService.blog = RaftService.blog + RaftService.stable_log[len(blog):RaftService.commit_index + 1]
+	    new_blogs = [log[2] for log in RaftService.stable_log[len(RaftService.blog):RaftService.commit_index + 1]]
+	    RaftService.blog.append(new_blogs)
 
     @staticmethod
     def get_last_log_index_and_term():
