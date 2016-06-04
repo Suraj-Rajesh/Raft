@@ -237,6 +237,7 @@ class RaftService(rpyc.Service):
             if total_votes >= RaftService.majority_criteria:
                 RaftService.logger.info(
                         "Reached consensus to replicate %s, %s" % (previous_log_index + 1, RaftService.term))
+		RaftService.commit_index = RaftService.commit_index + 1
                 self.apply_log_on_state_machine(blog)
             else:
                 RaftService.logger.info("Reached no majority")
@@ -366,9 +367,22 @@ class RaftService(rpyc.Service):
         else:
             if RaftService.leader_id != leaders_id:
                 RaftService.leader_id = leaders_id
+
             RaftService.logger.info("Received HeartBeat from %d, my leader is %d" % (leaders_id, RaftService.leader_id))
 
+	    if RaftService.commit_index < commit_index:
+		RaftService.commit_index = commit_index
+		self.update_state_machine()
+
         RaftService.logger.info("Leaving appendRPC ...")
+
+    def update_state_machine(self):
+
+	blog_last_index = len(RaftService.blog) - 1
+	
+	# Check if stable_log exists till commit_index
+	if RaftService.commit_index <= (len(RaftService.stable_log) - 1):
+	    RaftService.blog = RaftService.blog + RaftService.stable_log[len(blog):RaftService.commit_index + 1]
 
     @staticmethod
     def get_last_log_index_and_term():
