@@ -8,14 +8,16 @@ import logging
 import sys
 
 # States of Raft node
-LEADER = "LEADER"
-FOLLOWER = "FOLLOWER"
+LEADER    = "LEADER"
+FOLLOWER  = "FOLLOWER"
 CANDIDATE = "CANDIDATE"
 
 # AppendRPC return states
 SUCCESS = "SUCCESS"
 TERM_INCONSISTENCY = "TERM_INCONSISTENCY"
 NEXT_INDEX_INCONSISTENCY = "NEXT_INDEX_INCONSISTENCY"
+
+INVALID_COMMIT_INDEX = -2
 
 # AppendRPC type
 BLOG_REPLICATION = "BLOG_REPLICATION"
@@ -28,7 +30,7 @@ class RaftService(rpyc.Service):
     node_dao = NodeDAO()
 
     # stable log => (index, term, value)
-    term, voted_for, stable_log, blog = node_dao.initialize_persistence_files(0, -1, list(), list())
+    voted_for, term, stable_log, blog = node_dao.initialize_persistence_files(0, -1, list(), list())
 
     # Initializing commit_index based on blog
     # If blog is empty, nothing committed
@@ -59,6 +61,7 @@ class RaftService(rpyc.Service):
     interrupt = False
     leader_id = -1
     should_i_die = False
+    am_i_getting_updated = False
 
     # Duplicate Config information to smooth out config change
     majority_criteria_old = int(config_reader.get_majority_criteria())
@@ -164,9 +167,10 @@ class RaftService(rpyc.Service):
                                                   previous_log_term=None,
                                                   entries=None,
                                                   commit_index=RaftService.commit_index)
+
             except Exception as details:
-                print details
-                RaftService.logger.warning("send_heartbeat: Unable to connect to server %d" % peer[0])
+            #//    RaftService.logger.warning("send_heartbeat: Unable to connect to server %d" % peer[0])
+                pass
 
 
     @staticmethod
@@ -197,11 +201,10 @@ class RaftService(rpyc.Service):
                     RaftService.logger.info("Received vote from server %d for leader election, term %d"
                                             % (peer[0], RaftService.term))
                     total_votes = total_votes + 1
+
             except Exception as details:
-                print details
-
-
-            RaftService.logger.warning("request_votes: Unable to connect to server %d" % peer[0])  # +1 to account for self-vote
+             #//   RaftService.logger.warning("request_votes: Unable to connect to server %d" % peer[0])  # +1 to account for self-vote
+                pass
 
         return total_votes + 1
 
@@ -343,8 +346,7 @@ class RaftService(rpyc.Service):
             if RaftService.check_majority(total_votes):
                 RaftService.logger.info(
                         "Reached consensus to replicate %s, %s" % (previous_log_index + 1, RaftService.term))
-                RaftService.commit_index = RaftService.commit_index + 1
-                self.update_state_machine()
+                self.update_state_machine(RaftService.commit_index + 1)
             else:
                 RaftService.logger.info("Reached no majority")
         else:
@@ -389,17 +391,18 @@ class RaftService(rpyc.Service):
                         RaftService.logger.warning("Shouldn't have reached here. something is wrong")
 
                 except Exception as details:
-                    RaftService.logger.warning("replicate_log: Unable to connect to server %d" % peer[0])
+          #//          RaftService.logger.warning("replicate_log: Unable to connect to server %d" % peer[0])
+                    break
                     #TODO put the thread to sleep and try again. Cos we try again
 
-        return total_votes
+        return total_votes + 1
 
 
     def get_entries_from_index(index):
         entries = list()
         tuple_ = RaftService.stable_log[index]
         previous_log_term = tuple_[1]
-        for i in range(index, len(RaftService.stable_log)):
+        for i in range(index + 1, len(RaftService.stable_log)):
             entries.append(RaftService.stable_log[i])
 
         return entries, previous_log_term
@@ -458,7 +461,7 @@ class RaftService(rpyc.Service):
                                   commit_index):
 
 
-        RaftService.logger.info("In method append entries RPC %s"%entries)
+       #// RaftService.logger.info("In method append entries RPC %s"%entries)
         # TODO Isnt this for heartbeat alone? Seems like overkill @SURAJ
         # AppendRPC received, need to reset my election timer
         RaftService.reset_and_start_timer()
@@ -511,23 +514,20 @@ class RaftService(rpyc.Service):
             if RaftService.leader_id != leaders_id:
                 RaftService.leader_id = leaders_id
 
-            RaftService.logger.info("Received HeartBeat from %d, my leader is %d" % (leaders_id, RaftService.leader_id))
+      #//      RaftService.logger.info("Received HeartBeat from %d, my leader is %d" % (leaders_id, RaftService.leader_id))
 
             if RaftService.commit_index < commit_index:
-                RaftService.commit_index = commit_index
-                self.update_state_machine()
+                self.update_state_machine(commit_index)
 
-        RaftService.logger.info("Leaving appendRPC ...")
-
-
-    def update_state_machine(self):
-        blog_last_index = len(RaftService.blog) - 1
-
-        # Check if stable_log exists till commit_index
-        if RaftService.commit_index <= (len(RaftService.stable_log) - 1):
+    def update_state_machine(self, leaders_commit_index):
+        RaftService.logger.info("In update state machine. My commit_index: %d Leader commit_index: %d My stable log length: %d" % (RaftService.commit_index, leaders_commit_index, len(RaftService.stable_log)))
+        # Check if stable_log exists till leaders commit_index
+        # This case exists for LEADERS and FOLLOWERS with updated logs(FOLLOWERS who haven't failed)
+        if leaders_commit_index <= (len(RaftService.stable_log) - 1):
 
             new_blogs = list()
-            for i in range(len(RaftService.blog),RaftService.commit_index+1):
+
+            for i in range(len(RaftService.blog),leaders_commit_index+1):
                 current_entry = RaftService.stable_log[i]
                 value = current_entry[2]
                 if not isinstance(value, basestring):
@@ -540,9 +540,96 @@ class RaftService(rpyc.Service):
 
             # Persist blog
             RaftService.node_dao.persist_blog(RaftService.blog)
-        else:
-            RaftService.logger.warning("Commit Index > Stable log index ??? How did this happen !!")
 
+            # Update my commit_index
+            RaftService.commit_index = len(RaftService.blog) - 1
+        
+        # This case is True for FOLLOWERS who failed and are just up
+        elif (leaders_commit_index > (len(RaftService.stable_log) - 1) and not RaftService.am_i_getting_updated):
+            RaftService.am_i_getting_updated = True
+            self.fix_my_log()
+            RaftService.am_i_getting_updated = False
+        else:
+           # RaftService.logger.warning("Ignoring update...")
+           pass
+
+    def fix_my_log(self):
+
+        missing_logs = list()
+
+        # Get LEADER connection parameters
+        try:
+            for peer in RaftService.peers:
+                if peer[0] == RaftService.leader_id:
+                    leader = peer
+                    break
+        except Exception as details:
+            print details
+
+        # Connect to LEADER and get missing updated logs
+        try:
+            RaftService.logger.info("Trying to connect to leader")
+            connection = rpyc.connect(leader[1], leader[2], config={"allow_public_attrs": True})
+            missing_logs, leaders_commit_index = connection.root.fix_log_RPC(follower_commit_index=RaftService.commit_index)
+            RaftService.logger.info("Missing logs sent from LEADER: %s Leader Commit index: %d" % (missing_logs, leaders_commit_index))
+
+        except Exception as details:
+            print details
+            RaftService.logger.warning("fix_my_log: Unable to connect to LEADER %d" % leader[0])
+
+        # Check if problem obtaining missing log (Return code: INVALID_COMMIT_INDEX)
+        if leaders_commit_index != INVALID_COMMIT_INDEX:
+            # Update log and persist
+            try:
+                RaftService.stable_log = RaftService.stable_log[:(RaftService.commit_index+1)]
+
+                for log in missing_logs:
+                    RaftService.stable_log.append(log)
+
+            except Exception as details:
+                print details
+
+            RaftService.logger.info("New logs: %s" %RaftService.stable_log)
+            RaftService.node_dao.persist_log(RaftService.stable_log)
+
+            # Update blog and persist
+            if leaders_commit_index <= (len(RaftService.stable_log) - 1):
+
+                new_blogs = list()
+
+                for i in range(len(RaftService.blog),leaders_commit_index+1):
+                    current_entry = RaftService.stable_log[i]
+                    value = current_entry[2]
+
+                    if not isinstance(value, basestring):
+                        RaftService.logger.info(value)
+                        self.run_config_change(value)
+
+                    new_blogs.append(value)
+
+                RaftService.logger.info("Appending %s", new_blogs)
+                RaftService.blog = RaftService.blog + new_blogs
+        
+                # Persist blog
+                RaftService.node_dao.persist_blog(RaftService.blog)
+
+                # Update my commit_index
+                RaftService.commit_index = len(RaftService.blog) - 1
+        
+    def exposed_fix_log_RPC(self, follower_commit_index):
+
+        missing_log = list()
+        RaftService.logger.info("In fix_log_RPC: My commit index: %d, Follower commit_index: %d" % (RaftService.commit_index, follower_commit_index))
+
+        # Make sure follower commit index is indeed less than my commit index
+        if follower_commit_index <= RaftService.commit_index:
+            # Send (missing log from his commit index) and my current commit index
+            missing_log = RaftService.stable_log[(follower_commit_index + 1):]
+            RaftService.logger.info("Sending missing log: %s to follower" % missing_log)
+            return (missing_log, RaftService.commit_index)
+        else:
+            RaftService.logger.warning("exposed_fix_log_RPC: Something's wrong..")
+            return (missing_log, INVALID_COMMIT_INDEX)
 
     @staticmethod
     def get_last_log_index_and_term():

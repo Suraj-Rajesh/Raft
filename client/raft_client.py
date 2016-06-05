@@ -19,8 +19,8 @@ class Client(object):
             connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
             return_value = connection.root.postRPC(blog=msg,client_id=self.client_id)
         except Exception as details:
+            print "\n"
             print "Server down..."
-            print details
 
         return return_value
 
@@ -32,14 +32,14 @@ class Client(object):
         try:
             connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
             return_value = connection.root.lookupRPC()
+            print "\nBlogs: "
+            print "\n"
             for blog in  return_value:
                 print blog
 
         except Exception as details:
+            print "\n"
             print "Server down..."
-            print details
-
-        return return_value
 
     def change_config_of_network(self, list_of_changes,server_id):
         server_ip   = self.servers[server_id][1]
@@ -49,7 +49,7 @@ class Client(object):
             connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
             return_value = connection.root.exposed_config_changeRPC(list_of_config_changes =list_of_changes, client_id=self.client_id)
         except Exception as details:
-            print details
+            print "\n"
             print "Server down..."
 
         return return_value
@@ -57,27 +57,26 @@ class Client(object):
 
     def start_console(self):
 
-        print "\nClient running..."
+        print "\n"
 
         while True:
-            command = raw_input("\nOperations allowed: \nPOST <server id> message\nLOOKUP <server id>\nCONFIG <server_to_send_to> \nEnter 0 to EXIT\nEnter operation: ")
+            command = raw_input("\nOperations allowed: \n\nPOST <server id> message\nLOOKUP <server id>\nCONFIG <server_to_send_to> \nEnter 0 to EXIT\n\nEnter operation: ")
 
             command_parse = command.split()
 
             if command_parse[0] == "POST":
-                print "Posting..."
                 server_id = int(command_parse[1])
                 msg = command_parse[2]
                 try:
                     return_value = self.post(msg,server_id)
-                    print return_value
+                    if return_value:
+                        print "\nBlog successfully posted..."
                 except Exception as details:
                     print details
 
             elif command_parse[0] == "LOOKUP":
-                print "Lookup..."
                 server_id = int(command_parse[1])
-                blogger = self.lookup(server_id)
+                self.lookup(server_id)
 
             elif command_parse[0] == "CONFIG":
                 config_change_list = list() #Follow the format above

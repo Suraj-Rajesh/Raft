@@ -22,10 +22,10 @@ class ConfigReader:
 
     def get_server_parameters(self, section):
         try:
-            id = int(self.get_configuration(section,"id"))
+            peer_id = int(self.get_configuration(section,"id"))
             ip = self.get_configuration(section, "ip")
             port = int(self.get_configuration(section, "port"))
-            return (id, ip, port)
+            return (peer_id, ip, port)
 
         except Exception as details:
             print details
