@@ -30,7 +30,7 @@ class RaftService(rpyc.Service):
     node_dao = NodeDAO()
 
     # stable log => (index, term, value)
-    voted_for, term, stable_log, blog = node_dao.initialize_persistence_files(0, -1, list(), list())
+    voted_for, term, stable_log, blog = node_dao.initialize_persistence_files(-1, -1, list(), list())
 
     # Initializing commit_index based on blog
     # If blog is empty, nothing committed
