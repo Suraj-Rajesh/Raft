@@ -208,11 +208,22 @@ class RaftService(rpyc.Service):
 
         return total_votes + 1
 
+    def is_part_of_cluster(self, candidate_id):
+	
+	part_of_cluster = False
+
+        for peer in RaftService.peers:
+	    if peer[0] == candidate_id:
+	    	part_of_cluster = True
+		break
+	return part_of_cluster
 
     def exposed_requestRPC(self, term, candidate_id, last_log_index, last_log_term):
         my_vote = False
         RaftService.logger.info("Received requestRPC: candidate term: %d, my_term: %d" % (term, RaftService.term))
 
+	if not self.is_part_of_cluster(candidate_id): 
+	    return my_vote		
 
         if RaftService.term == term:
             # Check if I had voted to this candidate previously for this term. If YES, re-iterate my vote
