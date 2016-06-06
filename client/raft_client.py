@@ -12,8 +12,7 @@ class Client(object):
 
     def post(self, msg,server_id):
 
-        server_ip   = self.servers[server_id][1]
-        server_port = self.servers[server_id][2]
+        server_ip, server_port = self.config_reader.get_server_port_ip(server_id, self.servers)
         return_value = None
         try:
             connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
@@ -26,8 +25,7 @@ class Client(object):
 
     def lookup(self, server_id):
 
-        server_ip   = self.servers[server_id][1]
-        server_port = self.servers[server_id][2]
+        server_ip, server_port = self.config_reader.get_server_port_ip(server_id, self.servers)
         return_value = None
         try:
             connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
@@ -42,8 +40,7 @@ class Client(object):
             print "Server down..."
 
     def change_config_of_network(self, list_of_changes,server_id):
-        server_ip   = self.servers[server_id][1]
-        server_port = self.servers[server_id][2]
+        server_ip, server_port = self.config_reader.get_server_port_ip(server_id, self.servers)
         return_value = None
         print list_of_changes
         try:
