@@ -52,6 +52,7 @@ class RaftService(rpyc.Service):
     state = FOLLOWER
     electionTimer = 0
     heartBeatTimer = 0
+    deathBeatTimer = 0
     server_id = int(config_reader.get_configuration("CurrentServer", "sid"))
     id_ip_port = config_reader.get_server_parameters("Server" + str(server_id))
     total_nodes = int(config_reader.get_total_nodes())
@@ -110,7 +111,8 @@ class RaftService(rpyc.Service):
 
         if RaftService.should_i_die and RaftService.server_id != RaftService.leader_id:
             RaftService.logger.info("Stepping down as I am not part of new config")
-            os._exit(0)
+            #os._exit(0)
+            RaftService.start_deathbeat_timer()
 
     def on_connect(self):
         # code that runs when a new connection is created
@@ -165,10 +167,21 @@ class RaftService(rpyc.Service):
 
 
     @staticmethod
+    def start_deathbeat_timer():
+        RaftService.deathBeatTimer = threading.Timer(3, RaftService.trigger_death)
+        RaftService.deathBeatTimer.start()
+
+
+    @staticmethod
     def trigger_next_heartbeat():
         if RaftService.state == LEADER:
             threading.Thread(target=RaftService.start_heartbeat_timer).start()
             RaftService.send_heartbeat()
+
+    @staticmethod
+    def trigger_death():
+        if RaftService.should_i_die:
+            os._exit(0)
 
 
     @staticmethod
@@ -303,6 +316,8 @@ class RaftService(rpyc.Service):
                 self.run_config_change((NEW_CONFIGURATION,list_of_config_changes))     
                 new_config_change_success = self.append_entries((NEW_CONFIGURATION,list_of_config_changes), client_id)
                 if new_config_change_success:
+                    RaftService.trigger_next_heartbeat()
+
                     RaftService.logger.info("Successfully changed the configuration of the system.")
 
                     if RaftService.server_id == RaftService.leader_id:
@@ -321,9 +336,10 @@ class RaftService(rpyc.Service):
 
                     if RaftService.should_i_die and RaftService.server_id == RaftService.leader_id:
                         RaftService.logger.info("Stepping down as I am not part of new config")
-                        os._exit(0)
+                        #os._exit(0)
+                        RaftService.start_deathbeat_timer()
                 else:
-                    RaftService.logger.info("Couldnt change the configuration of system to new config.")
+                    RaftService.logger.info("Couldn't change the configuration of system to new config.")
             else:
                 RaftService.logger.info("Couldn't change the configuration of the system to joint config.")
 
@@ -347,10 +363,12 @@ class RaftService(rpyc.Service):
             self.run_config_change((NEW_CONFIGURATION,list_of_config_changes))
             new_config_change_success = self.append_entries((NEW_CONFIGURATION,list_of_config_changes), client_id)
             if new_config_change_success:
+                RaftService.trigger_next_heartbeat()
                 RaftService.logger.info("Successfully changed the configuration of the system.")
                 if RaftService.should_i_die and RaftService.server_id == RaftService.leader_id:
                     RaftService.logger.info("Stepping down as I am not part of new config")
-                    os._exit(0)
+                    #os._exit(0)
+                    RaftService.start_deathbeat_timer()
             else:
                 RaftService.logger.info("Couldn't change the configuration of system to new config.")
         else:
@@ -505,7 +523,7 @@ class RaftService(rpyc.Service):
                     #new_peers = self.config_reader.get_new_peers_by_removing(local_id, new_peers)
                     new_total_nodes = new_total_nodes - 1
                 else:
-                    print "Reached else conditon."
+                    print "Reached else condition."
 
             new_majority_criteria = int(new_total_nodes / 2) + 1
             self.switch_to_joint_config(new_majority_criteria, new_total_nodes, new_peers)
@@ -552,7 +570,7 @@ class RaftService(rpyc.Service):
 
 
        #// RaftService.logger.info("In method append entries RPC %s"%entries)
-        # TODO Isnt this for heartbeat alone? Seems like overkill @SURAJ
+        # TODO Isn't this for heartbeat alone? Seems like overkill @SURAJ
         # AppendRPC received, need to reset my election timer
         RaftService.reset_and_start_timer()
 

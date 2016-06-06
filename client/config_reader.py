@@ -8,9 +8,7 @@ class ConfigReader:
         self.config.read(config_file_path)
 
     def get_server_port_ip(self, server_id, peers):
-        print peers
         for peer in peers:
-            print peer
             if int(peer[0]) == server_id:
                 return (peer[1],peer[2])
 
