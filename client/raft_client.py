@@ -33,7 +33,8 @@ class Client(object):
             print "\nBlogs: "
             print "\n"
             for blog in  return_value:
-                print blog
+                if blog != "CONFIG_CHANGE":
+                    print blog
 
         except Exception as details:
             print "\n"
