@@ -45,15 +45,25 @@ class Client(object):
         server_ip   = self.servers[server_id][1]
         server_port = self.servers[server_id][2]
         return_value = None
+        print list_of_changes
         try:
             connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
-            return_value = connection.root.exposed_config_changeRPC(list_of_config_changes =list_of_changes, client_id=self.client_id)
+            return_value = connection.root.config_changeRPC(list_of_config_changes =list_of_changes, client_id=self.client_id)
         except Exception as details:
+            print details
             print "\n"
             print "Server down..."
 
+        if return_value:
+            self.change_config_of_client(list_of_changes)
+
         return return_value
 
+    def change_config_of_client(self, list_of_changes):
+        for config in list_of_changes:
+            if config[0] == "ADD":
+                self.servers.append((config[1],config[2],int(config[3])))
+        print self.servers
 
     def start_console(self):
 

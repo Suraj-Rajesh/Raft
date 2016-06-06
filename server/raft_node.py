@@ -6,6 +6,7 @@ from config_reader import ConfigReader
 from node_dao import NodeDAO
 import logging
 import sys
+import os
 
 # States of Raft node
 LEADER    = "LEADER"
@@ -67,6 +68,7 @@ class RaftService(rpyc.Service):
     majority_criteria_old = int(config_reader.get_majority_criteria())
     total_nodes_old = int(config_reader.get_total_nodes())
     peers_old = config_reader.get_peers(server_id, total_nodes)
+    peers_to_remove = list()
 
     @staticmethod
     def check_majority(votes):
@@ -92,9 +94,23 @@ class RaftService(rpyc.Service):
         RaftService.total_nodes_old = RaftService.total_nodes
         RaftService.peers_old = RaftService.peers
 
-        if RaftService.should_i_die:
+        if RaftService.server_id != RaftService.leader_id:
+            reducted_peers = list()
+            for peer in RaftService.peers:
+                flag = True
+                for remove_id in RaftService.peers_to_remove:
+                    if peer[0] == remove_id:
+                        flag = False
+                if flag:
+                    reducted_peers.append(peer)
+
+            RaftService.peers_old = reducted_peers
+            RaftService.peers = reducted_peers
+            RaftService.peers_to_remove = list()
+
+        if RaftService.should_i_die and RaftService.server_id != RaftService.leader_id:
             RaftService.logger.info("Stepping down as I am not part of new config")
-            sys.exit(0)
+            os._exit(0)
 
     def on_connect(self):
         # code that runs when a new connection is created
@@ -209,21 +225,22 @@ class RaftService(rpyc.Service):
         return total_votes + 1
 
     def is_part_of_cluster(self, candidate_id):
-	
-	part_of_cluster = False
+    	part_of_cluster = False
 
         for peer in RaftService.peers:
-	    if peer[0] == candidate_id:
-	    	part_of_cluster = True
-		break
-	return part_of_cluster
+            if peer[0] == candidate_id:
+                part_of_cluster = True
+                break
+    	
+        return part_of_cluster
 
     def exposed_requestRPC(self, term, candidate_id, last_log_index, last_log_term):
         my_vote = False
-        RaftService.logger.info("Received requestRPC: candidate term: %d, my_term: %d" % (term, RaftService.term))
 
-	if not self.is_part_of_cluster(candidate_id): 
-	    return my_vote		
+        if not self.is_part_of_cluster(candidate_id):
+            return my_vote
+        
+        RaftService.logger.info("Received requestRPC: candidate term: %d, my_term: %d" % (term, RaftService.term))
 
         if RaftService.term == term:
             # Check if I had voted to this candidate previously for this term. If YES, re-iterate my vote
@@ -250,6 +267,7 @@ class RaftService(rpyc.Service):
                 # TODO Need Review on this
                 RaftService.term = term
                 RaftService.voted_for = candidate_id
+                RaftService.state = FOLLOWER
                 RaftService.node_dao.persist_vote_and_term(RaftService.voted_for, RaftService.term)
             else:
                 RaftService.logger.warning("Something went wrong. Shouldn't print this...")
@@ -273,12 +291,37 @@ class RaftService(rpyc.Service):
         else:
 
             entry = (JOINT_CONFIGURATION, list_of_config_changes)
+            
+            ### Apply Joint Configuration
+            self.run_config_change(entry)
+
             joint_config_change_success = self.append_entries(entry, client_id)
             if joint_config_change_success:
                 # Joint consensus is running. So start new config now
+
+                ###Apply new configuration
+                self.run_config_change((NEW_CONFIGURATION,list_of_config_changes))     
                 new_config_change_success = self.append_entries((NEW_CONFIGURATION,list_of_config_changes), client_id)
                 if new_config_change_success:
                     RaftService.logger.info("Successfully changed the configuration of the system.")
+
+                    if RaftService.server_id == RaftService.leader_id:
+                        reducted_peers = list()
+                        for peer in RaftService.peers:
+                            flag = True
+                            for remove_id in RaftService.peers_to_remove:
+                                if peer[0] == remove_id:
+                                    flag = False
+                            if flag:
+                                reducted_peers.append(peer)
+
+                        RaftService.peers_old = reducted_peers
+                        RaftService.peers = reducted_peers
+                        RaftService.peers_to_remove = list()
+
+                    if RaftService.should_i_die and RaftService.server_id == RaftService.leader_id:
+                        RaftService.logger.info("Stepping down as I am not part of new config")
+                        os._exit(0)
                 else:
                     RaftService.logger.info("Couldnt change the configuration of system to new config.")
             else:
@@ -291,13 +334,23 @@ class RaftService(rpyc.Service):
         new_config_change_success = False
 
         RaftService.logger.info("Received Configuration via Redirection from client %s" % client_id)
-        joint_config_change_success = self.append_entries((JOINT_CONFIGURATION,list_of_config_changes), client_id)
+        entry = (JOINT_CONFIGURATION, list_of_config_changes)
+        ### Apply Joint Configuration
+        self.run_config_change(entry)
 
+        joint_config_change_success = self.append_entries((JOINT_CONFIGURATION,list_of_config_changes), client_id)
+        
         if joint_config_change_success:
             # Joint consensus is running. So start new config now
+
+            ###Apply new configuration
+            self.run_config_change((NEW_CONFIGURATION,list_of_config_changes))
             new_config_change_success = self.append_entries((NEW_CONFIGURATION,list_of_config_changes), client_id)
             if new_config_change_success:
                 RaftService.logger.info("Successfully changed the configuration of the system.")
+                if RaftService.should_i_die and RaftService.server_id == RaftService.leader_id:
+                    RaftService.logger.info("Stepping down as I am not part of new config")
+                    os._exit(0)
             else:
                 RaftService.logger.info("Couldn't change the configuration of system to new config.")
         else:
@@ -342,8 +395,14 @@ class RaftService(rpyc.Service):
         # (index, term, value, commit_status)
         previous_log_index, previous_log_term = RaftService.get_last_log_index_and_term()
         RaftService.logger.info("Prev Index %s Prev Term %s" % (previous_log_index, previous_log_term))
+
         entry = (previous_log_index + 1, RaftService.term, item_to_replicate)
+        if not isinstance (item_to_replicate, basestring):
+            entry = (previous_log_index + 1, RaftService.term, "CONFIG_CHANGE")
+        
         RaftService.stable_log.append(entry)
+        entry = (previous_log_index + 1, RaftService.term, item_to_replicate)
+        
         RaftService.node_dao.persist_log(RaftService.stable_log)
 
 
@@ -421,14 +480,34 @@ class RaftService(rpyc.Service):
 
     def run_config_change(self, log_entry):
         
-        config_object = log_entry[2]
-        mode = config_object[0]
-        item_to_replicate = config_object[1]
+        config_change_list = log_entry[1]
+        mode = log_entry[0]
 
         RaftService.logger.info("Running configuration change now -%s"%mode)
 
         if JOINT_CONFIGURATION == mode:
-            new_majority_criteria, new_total_nodes, new_peers = self.get_new_config(item_to_replicate)
+            new_total_nodes = RaftService.total_nodes
+            new_peers = RaftService.peers_old
+
+            for item_to_replicate in config_change_list:
+                command = item_to_replicate[0]
+                local_id = int(item_to_replicate[1])
+                    
+                if command == "ADD":
+                    ip = item_to_replicate[2]
+                    port = int(item_to_replicate[3])
+                    new_peers.append((local_id, ip, port))
+                    new_total_nodes = new_total_nodes + 1
+                elif command == "REMOVE":
+                    if (local_id == RaftService.server_id):
+                        RaftService.should_i_die = True
+                    RaftService.peers_to_remove.append(local_id)
+                    #new_peers = self.config_reader.get_new_peers_by_removing(local_id, new_peers)
+                    new_total_nodes = new_total_nodes - 1
+                else:
+                    print "Reached else conditon."
+
+            new_majority_criteria = int(new_total_nodes / 2) + 1
             self.switch_to_joint_config(new_majority_criteria, new_total_nodes, new_peers)
 
         elif NEW_CONFIGURATION == mode:
@@ -512,7 +591,13 @@ class RaftService(rpyc.Service):
 
             # Log consistency check successful. Append entries to log, persist on disk, send SUCCESS
             for entry in entries:
-                RaftService.stable_log.append(entry)
+                config_change = entry[2]
+                if not isinstance(config_change, basestring):
+                    self.run_config_change(config_change)
+                    new_entry = (entry[0],entry[1], "CONFIG_CHANGE")
+                    RaftService.stable_log.append(new_entry)
+                else:
+                    RaftService.stable_log.append(entry)
                 my_next_index = my_next_index + 1
 
             RaftService.node_dao.persist_log(RaftService.stable_log)
@@ -542,8 +627,7 @@ class RaftService(rpyc.Service):
                 current_entry = RaftService.stable_log[i]
                 value = current_entry[2]
                 if not isinstance(value, basestring):
-                    RaftService.logger.info(value)
-                    self.run_config_change(value)
+                    value = "CONFIG_CHANGE"
                 new_blogs.append(value)
 
             RaftService.logger.info("Appending %s", new_blogs)
@@ -613,8 +697,7 @@ class RaftService(rpyc.Service):
                     value = current_entry[2]
 
                     if not isinstance(value, basestring):
-                        RaftService.logger.info(value)
-                        self.run_config_change(value)
+                        value = "CONFIG_CHANGE"
 
                     new_blogs.append(value)
 
