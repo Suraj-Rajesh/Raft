@@ -11,7 +11,7 @@ class NodeDAO:
 
     def persist_vote_and_term(self, voted_for, term):
         tuple = (voted_for, term)
-        pickle.dump(tuple, open(self.path_to_persist_vote, "wb"))
+        #pickle.dump(tuple, open(self.path_to_persist_vote, "wb"))
 
     def read_persisted_vote_and_term(self):
         (voted_for, term) = pickle.load(
@@ -19,14 +19,16 @@ class NodeDAO:
         return (voted_for, term)
 
     def persist_log(self, stable_log):
-        pickle.dump(stable_log, open(self.path_to_persist_log, "wb"))
+        #pickle.dump(stable_log, open(self.path_to_persist_log, "wb"))
+        pass
 
     def read_persisted_log(self):
         stable_log = pickle.load(open(self.path_to_persist_log, "rb"))
         return stable_log
 
     def persist_blog(self, blog):
-        pickle.dump(blog, open(self.path_to_persist_blog, "wb"))
+        #pickle.dump(blog, open(self.path_to_persist_blog, "wb"))
+        pass
 
     def read_persisted_blog(self):
         blog = pickle.load(open(self.path_to_persist_blog, "rb"))

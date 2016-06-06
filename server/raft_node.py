@@ -6,6 +6,8 @@ from config_reader import ConfigReader
 from node_dao import NodeDAO
 import logging
 import sys
+import time
+import os
 
 # States of Raft node
 LEADER = "LEADER"
@@ -18,7 +20,6 @@ TERM_INCONSISTENCY = "TERM_INCONSISTENCY"
 NEXT_INDEX_INCONSISTENCY = "NEXT_INDEX_INCONSISTENCY"
 
 # AppendRPC type
-BLOG_REPLICATION = "BLOG_REPLICATION"
 JOINT_CONFIGURATION = "JOINT_CONFIGURATION"
 NEW_CONFIGURATION = "NEW_CONFIGURATION"
 
@@ -75,6 +76,7 @@ class RaftService(rpyc.Service):
             return False
 
     def switch_to_joint_config(self, new_majority, new_total_nodes, new_peers):
+        RaftService.logger.info("Switching ..%s"%RaftService.server_id)
         RaftService.majority_criteria_old = RaftService.majority_criteria
         RaftService.total_nodes_old = RaftService.total_nodes
         RaftService.peers_old = RaftService.peers
@@ -83,15 +85,25 @@ class RaftService(rpyc.Service):
         RaftService.total_nodes = new_total_nodes
         RaftService.peers = new_peers
 
+
     def switch_to_new_config(self):
         # Assumes you are running in Joint config mode
+
+        if RaftService.server_id == RaftService.leader_id:
+            #If you are leader send a heart beat to others
+            # Connect to peers and send heartbeats
+            time.sleep(20)
+
+        RaftService.logger.info("Back from sending heartbeat")
+
         RaftService.majority_criteria_old = RaftService.majority_criteria
         RaftService.total_nodes_old = RaftService.total_nodes
         RaftService.peers_old = RaftService.peers
 
         if RaftService.should_i_die:
             RaftService.logger.info("Stepping down as I am not part of new config")
-            sys.exit(0)
+            #sys.exit(0)
+            os._exit(0)
 
     def on_connect(self):
         # code that runs when a new connection is created
@@ -155,7 +167,8 @@ class RaftService(rpyc.Service):
     @staticmethod
     def send_heartbeat():
         # Connect to peers and send heartbeats
-        for peer in RaftService.peers:
+        RaftService.logger.info("Sending heartbeat")
+        for peer in RaftService.peers_old:
             try:
                 connection = rpyc.connect(peer[1], peer[2], config={"allow_public_attrs": True})
                 connection.root.append_entriesRPC(leaders_term=RaftService.term,
@@ -183,7 +196,7 @@ class RaftService(rpyc.Service):
         # TODO Run this concurrently
         # Suggestion: Create a separate RPC call to handle response. This RPC only requests for vote.
         # For now we assume that the network wont fail
-        for peer in RaftService.peers:
+        for peer in RaftService.peers_old:
             try:
                 vote = False
                 connection = rpyc.connect(peer[1], peer[2], config={"allow_public_attrs": True})
@@ -236,32 +249,34 @@ class RaftService(rpyc.Service):
                 # TODO Need Review on this
                 RaftService.term = term
                 RaftService.voted_for = candidate_id
+                RaftService.state = FOLLOWER
                 RaftService.node_dao.persist_vote_and_term(RaftService.voted_for, RaftService.term)
             else:
-                RaftService.logger.warning("Something went wrong. Shouldn't print this...")
+                RaftService.logger.info("Something went wrong. Shouldn't print this...")
 
         return my_vote
 
 
     def exposed_config_changeRPC(self, list_of_config_changes, client_id):
         new_config_change_success = False
-
+        print list_of_config_changes
         RaftService.logger.info("Received Configuration Change Request from client %s" % client_id)
         if RaftService.server_id != RaftService.leader_id:
             try:
                 RaftService.logger.info("Redirecting the request to Leader %s" % RaftService.server_id)
-                (ip, port) = RaftService.config_reader.get_leaders_port_ip(RaftService.leader_id, RaftService.peers)
+                (ip, port) = RaftService.config_reader.get_leaders_port_ip(RaftService.leader_id, RaftService.peers_old)
                 connection = rpyc.connect(ip, port, config={"allow_public_attrs": True})
                 new_config_change_success = connection.root.exposed_config_change_leaderRPC(list_of_config_changes, client_id)
 
             except Exception as details:
-                RaftService.logger.info(details)
+                print details
         else:
 
             entry = (JOINT_CONFIGURATION, list_of_config_changes)
             joint_config_change_success = self.append_entries(entry, client_id)
             if joint_config_change_success:
                 # Joint consensus is running. So start new config now
+                #time.sleep(20)
                 new_config_change_success = self.append_entries((NEW_CONFIGURATION,list_of_config_changes), client_id)
                 if new_config_change_success:
                     RaftService.logger.info("Successfully changed the configuration of the system.")
@@ -280,6 +295,7 @@ class RaftService(rpyc.Service):
         joint_config_change_success = self.append_entries((JOINT_CONFIGURATION,list_of_config_changes), client_id)
 
         if joint_config_change_success:
+            #time.sleep(20)
             # Joint consensus is running. So start new config now
             new_config_change_success = self.append_entries((NEW_CONFIGURATION,list_of_config_changes), client_id)
             if new_config_change_success:
@@ -303,7 +319,7 @@ class RaftService(rpyc.Service):
         RaftService.logger.info("Received Post from client %s" % client_id)
         if RaftService.server_id != RaftService.leader_id:
             try:
-                (ip, port) = RaftService.config_reader.get_leaders_port_ip(RaftService.leader_id, RaftService.peers)
+                (ip, port) = RaftService.config_reader.get_leaders_port_ip(RaftService.leader_id, RaftService.peers_old)
                 connection = rpyc.connect(ip, port, config={"allow_public_attrs": True})
                 return_value = connection.root.exposed_post_leaderRPC(blog, client_id)
 
@@ -330,7 +346,8 @@ class RaftService(rpyc.Service):
         RaftService.logger.info("Prev Index %s Prev Term %s" % (previous_log_index, previous_log_term))
         entry = (previous_log_index + 1, RaftService.term, item_to_replicate)
         RaftService.stable_log.append(entry)
-        RaftService.node_dao.persist_log(RaftService.stable_log)
+        
+        #RaftService.node_dao.persist_log(RaftService.stable_log)
 
 
         entries = list()
@@ -357,15 +374,19 @@ class RaftService(rpyc.Service):
         total_votes = 0
 
         # TODO Redundant Code Ah Man!
-        for peer in RaftService.peers:
+        for peer in RaftService.peers_old:
 
             # TODO For now, as the dude doesnt fail, the entries are what client asks to replicate
             # TODO Remove this dangerous guy at once!
             # TODO Does it make sense to sleep for a while and try again network failure errors
             previous_log_index = prev_log_index
             previous_log_term = prev_log_term
-
+            z = 0
             while True:
+                #z = z+1
+                #if z > 3:
+                    #RaftService.logger.info("Breaking ...")
+                    #break;
                 try:
                     connection = rpyc.connect(peer[1], peer[2], config={"allow_public_attrs": True})
                     term, status, next_index = connection.root.append_entriesRPC(leaders_term=RaftService.term,
@@ -389,7 +410,9 @@ class RaftService(rpyc.Service):
                         RaftService.logger.warning("Shouldn't have reached here. something is wrong")
 
                 except Exception as details:
+                    RaftService.logger.info(details)
                     RaftService.logger.warning("replicate_log: Unable to connect to server %d" % peer[0])
+                    #time.sleep(3)
                     #TODO put the thread to sleep and try again. Cos we try again
 
         return total_votes
@@ -407,46 +430,43 @@ class RaftService(rpyc.Service):
 
     def run_config_change(self, log_entry):
         
-        config_object = log_entry[2]
-        mode = config_object[0]
-        item_to_replicate = config_object[1]
+        try:
+            RaftService.logger.info("Running config change %s"%log_entry[0])
+            config_change_list = log_entry[1]
+            mode = log_entry[0]
 
-        RaftService.logger.info("Running configuration change now -%s"%mode)
+            if JOINT_CONFIGURATION == mode:
+                new_total_nodes = RaftService.total_nodes
+                new_peers = RaftService.peers_old
 
-        if JOINT_CONFIGURATION == mode:
-            new_majority_criteria, new_total_nodes, new_peers = self.get_new_config(item_to_replicate)
-            self.switch_to_joint_config(new_majority_criteria, new_total_nodes, new_peers)
+                for item_to_replicate in config_change_list:
+                    command = item_to_replicate[0]
+                    local_id = int(item_to_replicate[1])
+                    
+                    if command == "ADD":
+                        ip = item_to_replicate[2]
+                        port = int(item_to_replicate[3])
+                        new_peers.append((local_id, ip, port))
+                        new_total_nodes = new_total_nodes + 1
+                    elif command == "REMOVE":
+                        if (local_id == RaftService.server_id):
+                            RaftService.should_i_die = True
+                        new_peers = self.config_reader.get_new_peers_by_removing(local_id, new_peers)
+                        new_total_nodes = new_total_nodes - 1
+                    else:
+                        print "Reached else conditon."
 
-        elif NEW_CONFIGURATION == mode:
-            self.switch_to_new_config()
+                new_majority_criteria = int(new_total_nodes / 2) + 1
+                self.switch_to_joint_config(new_majority_criteria, new_total_nodes, new_peers)
 
-        else:
-            RaftService.logger.info("Wrong mode called for applying to state machine")
+            elif NEW_CONFIGURATION == mode:
+                self.switch_to_new_config()
 
-
-    def get_new_config(self, config_change_list):
-        new_peers = RaftService.peers
-        new_total_nodes = RaftService.total_nodes
-
-        for item_to_replicate in config_change_list:
-            command = item_to_replicate[0]
-            id = item_to_replicate[1]
-
-            if command == "ADD":
-                ip = item_to_replicate[2]
-                port = item_to_replicate[3]
-                new_peers.append((id, ip, port))
-                new_total_nodes = new_total_nodes + 1
-            elif command == "REMOVE":
-                if (id == RaftService.server_id):
-                    RaftService.should_i_die = True
-
-                new_peers = self.config_reader.get_new_peers_by_removing(id, new_peers)
-                new_total_nodes = new_total_nodes - 1
-
-        new_majority_criteria = int(new_total_nodes / 2) + 1
-
-        return new_majority_criteria, new_total_nodes, new_peers
+            else:
+                RaftService.logger.info("Wrong mode called for applying to state machine")
+        except Exception as details:
+            RaftService.logger.warning(details)
+        RaftService.logger.info("Leaving Run Config Change%s"%RaftService.server_id)
 
 
     def exposed_append_entriesRPC(self,
@@ -458,7 +478,12 @@ class RaftService(rpyc.Service):
                                   commit_index):
 
 
-        RaftService.logger.info("In method append entries RPC %s"%entries)
+        #RaftService.logger.info("In method append entries RPC %s %s %s %s %s %s"%(leaders_term,
+                                 # leaders_id,
+                                 # previous_log_index,
+                                 # previous_log_term,
+                                  #entries,
+                                  #commit_index))
         # TODO Isnt this for heartbeat alone? Seems like overkill @SURAJ
         # AppendRPC received, need to reset my election timer
         RaftService.reset_and_start_timer()
@@ -486,6 +511,7 @@ class RaftService(rpyc.Service):
             # Check if next index matches. If not, send Inconsistency error and next index of the Follower
             if previous_log_index != my_prev_log_index:
                 my_next_index = my_next_index - 1
+                RaftService.logger.info("Previous Log Index: %s My Prev Log Index: %s"%(previous_log_index, my_prev_log_index))
                 RaftService.logger.info("Reply to AppendRPC: Sending NEXT_INDEX_INCONSISTENCY to  %d" % leaders_id)
                 return (RaftService.term, NEXT_INDEX_INCONSISTENCY, my_next_index)
 
@@ -502,8 +528,14 @@ class RaftService(rpyc.Service):
                 my_next_index = my_next_index + 1
 
             RaftService.node_dao.persist_log(RaftService.stable_log)
-            RaftService.logger.info("Log after appending ...")
-            self.print_stable_log()
+            
+            #if RaftService.commit_index < commit_index:
+                #RaftService.commit_index = commit_index
+                #self.update_state_machine()
+                #print "Back to append entries"
+            #else:
+                #RaftService.logger.info("Nothing to update in commmit index %s %s"%(RaftService.commit_index, commit_index))
+            
             RaftService.logger.info("Reply to AppendRPC: Sending SUCCESS to %d" % leaders_id)
             return (RaftService.term, SUCCESS, my_next_index)
 
@@ -516,32 +548,36 @@ class RaftService(rpyc.Service):
             if RaftService.commit_index < commit_index:
                 RaftService.commit_index = commit_index
                 self.update_state_machine()
-
-        RaftService.logger.info("Leaving appendRPC ...")
+                RaftService.logger.info("Done updating machine after heartbeat %d"%RaftService.server_id)
+        
 
 
     def update_state_machine(self):
         blog_last_index = len(RaftService.blog) - 1
 
-        # Check if stable_log exists till commit_index
-        if RaftService.commit_index <= (len(RaftService.stable_log) - 1):
+        try:
+            # Check if stable_log exists till commit_index
+            if RaftService.commit_index <= (len(RaftService.stable_log) - 1):
+                old_blog = RaftService.blog
+                new_blogs = list()
+                for i in range(len(RaftService.blog),RaftService.commit_index+1):
+                    current_entry = RaftService.stable_log[i]
+                    value = current_entry[2]
+                    if not isinstance(value, basestring):
+                        RaftService.logger.info("Calling Run Config inside update state machine %s"%RaftService.server_id)
+                        self.run_config_change(value)
+                    new_blogs.append(value)
 
-            new_blogs = list()
-            for i in range(len(RaftService.blog),RaftService.commit_index+1):
-                current_entry = RaftService.stable_log[i]
-                value = current_entry[2]
-                if not isinstance(value, basestring):
-                    RaftService.logger.info(value)
-                    self.run_config_change(value)
-                new_blogs.append(value)
+                old_blog.append(new_blogs)
+                RaftService.blog = old_blog
+                # Persist blog
+                RaftService.node_dao.persist_blog(RaftService.blog)
+            else:
+                print "Commit Index > Stable log index ??? How did this happen !!"
+        except Exception as details:
+            print details
 
-            RaftService.logger.info("Appending %s", new_blogs)
-            RaftService.blog = RaftService.blog + new_blogs
-
-            # Persist blog
-            RaftService.node_dao.persist_blog(RaftService.blog)
-        else:
-            RaftService.logger.warning("Commit Index > Stable log index ??? How did this happen !!")
+        RaftService.logger.info("Exiting update state machine %s"%RaftService.server_id)
 
 
     @staticmethod
@@ -566,5 +602,5 @@ if __name__ == "__main__":
         RaftService.blog, RaftService.commit_index))
     RaftService.start_election_timer()
     my_port = RaftService.id_ip_port[2]
-    t = ThreadedServer(RaftService, port=my_port, protocol_config={"allow_public_attrs": True})
+    t = ThreadedServer(RaftService, port=my_port, protocol_config={"allow_public_attrs": True, "allow_pickle":True})
     t.start()

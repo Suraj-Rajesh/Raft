@@ -16,7 +16,7 @@ class Client(object):
         server_port = self.servers[server_id][2]
         return_value = None
         try:
-            connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
+            connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True, "allow_pickle" :True})
             return_value = connection.root.postRPC(blog=msg,client_id=self.client_id)
         except Exception as details:
             print "Server down..."
@@ -30,7 +30,7 @@ class Client(object):
         server_port = self.servers[server_id][2]
         return_value = None
         try:
-            connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
+            connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True, "allow_pickle" :True})
             return_value = connection.root.lookupRPC()
             for blog in  return_value:
                 print blog
@@ -46,7 +46,8 @@ class Client(object):
         server_port = self.servers[server_id][2]
         return_value = None
         try:
-            connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
+            print list_of_changes
+            connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True, "allow_pickle" :True})
             return_value = connection.root.exposed_config_changeRPC(list_of_config_changes =list_of_changes, client_id=self.client_id)
         except Exception as details:
             print details
