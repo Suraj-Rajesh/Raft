@@ -392,6 +392,20 @@ class RaftService(rpyc.Service):
                 RaftService.logger.info("Successfully changed the configuration of the system.")
 
                 if RaftService.server_id == RaftService.leader_id:
+                        reducted_peers = list()
+                        for peer in RaftService.peers:
+                            flag = True
+                            for remove_id in RaftService.peers_to_remove:
+                                if peer[0] == remove_id:
+                                    flag = False
+                            if flag:
+                                reducted_peers.append(peer)
+
+                        RaftService.peers_old = reducted_peers
+                        RaftService.peers = reducted_peers
+                        RaftService.peers_to_remove = list()
+
+                if RaftService.server_id == RaftService.leader_id:
                     self.config_reader.update_config_file(RaftService.server_id, RaftService.total_nodes, RaftService.majority_criteria,RaftService.peers)
 
                 if RaftService.should_i_die and RaftService.server_id == RaftService.leader_id:
