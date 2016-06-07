@@ -109,10 +109,30 @@ class RaftService(rpyc.Service):
             RaftService.peers = reducted_peers
             RaftService.peers_to_remove = list()
 
+        if RaftService.server_id != RaftService.leader_id:
+            #Update and persist the new configuration
+            self.config_reader.update_config_file(RaftService.server_id, RaftService.total_nodes, RaftService.majority_criteria, RaftService.peers)
+
         if RaftService.should_i_die and RaftService.server_id != RaftService.leader_id:
             RaftService.logger.info("Stepping down as I am not part of new config")
             #os._exit(0)
             RaftService.start_deathbeat_timer()
+        
+    def convert_to_string(self, log_entry):
+        config_change_list = log_entry[1]
+        mode = log_entry[0]
+
+        string_of_config = mode
+
+        for item_to_replicate in config_change_list:
+            command = item_to_replicate[0]
+            string_of_config = string_of_config + " " +str(command) + " "+str(item_to_replicate[1])
+                    
+            if command == "ADD":
+                string_of_config = string_of_config + " " + str(item_to_replicate[2]) + " "+ str(item_to_replicate[3])
+
+        return string_of_config
+
 
     def on_connect(self):
         # code that runs when a new connection is created
@@ -334,6 +354,9 @@ class RaftService(rpyc.Service):
                         RaftService.peers = reducted_peers
                         RaftService.peers_to_remove = list()
 
+                    if RaftService.server_id == RaftService.leader_id:
+                        self.config_reader.update_config_file(RaftService.server_id, RaftService.total_nodes, RaftService.majority_criteria,RaftService.peers)
+
                     if RaftService.should_i_die and RaftService.server_id == RaftService.leader_id:
                         RaftService.logger.info("Stepping down as I am not part of new config")
                         #os._exit(0)
@@ -362,9 +385,15 @@ class RaftService(rpyc.Service):
             ###Apply new configuration
             self.run_config_change((NEW_CONFIGURATION,list_of_config_changes))
             new_config_change_success = self.append_entries((NEW_CONFIGURATION,list_of_config_changes), client_id)
+            
             if new_config_change_success:
+                
                 RaftService.trigger_next_heartbeat()
                 RaftService.logger.info("Successfully changed the configuration of the system.")
+
+                if RaftService.server_id == RaftService.leader_id:
+                    self.config_reader.update_config_file(RaftService.server_id, RaftService.total_nodes, RaftService.majority_criteria,RaftService.peers)
+
                 if RaftService.should_i_die and RaftService.server_id == RaftService.leader_id:
                     RaftService.logger.info("Stepping down as I am not part of new config")
                     #os._exit(0)
@@ -416,7 +445,8 @@ class RaftService(rpyc.Service):
 
         entry = (previous_log_index + 1, RaftService.term, item_to_replicate)
         if not isinstance (item_to_replicate, basestring):
-            entry = (previous_log_index + 1, RaftService.term, "CONFIG_CHANGE")
+            string_config = self.convert_to_string(item_to_replicate)
+            entry = (previous_log_index + 1, RaftService.term, string_config)
         
         RaftService.stable_log.append(entry)
         entry = (previous_log_index + 1, RaftService.term, item_to_replicate)
@@ -612,7 +642,8 @@ class RaftService(rpyc.Service):
                 config_change = entry[2]
                 if not isinstance(config_change, basestring):
                     self.run_config_change(config_change)
-                    new_entry = (entry[0],entry[1], "CONFIG_CHANGE")
+                    string_config = self.convert_to_string(config_change)
+                    new_entry = (entry[0],entry[1],string_config)
                     RaftService.stable_log.append(new_entry)
                 else:
                     RaftService.stable_log.append(entry)

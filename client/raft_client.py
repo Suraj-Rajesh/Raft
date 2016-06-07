@@ -32,8 +32,10 @@ class Client(object):
             return_value = connection.root.lookupRPC()
             print "\nBlogs: "
             print "\n"
+            
             for blog in  return_value:
-                if blog != "CONFIG_CHANGE":
+                prefix = blog.split()[0]
+                if prefix != "JOINT_CONFIGURATION" and prefix!="NEW_CONFIGURATION":
                     print blog
 
         except Exception as details:
@@ -43,7 +45,6 @@ class Client(object):
     def change_config_of_network(self, list_of_changes,server_id):
         server_ip, server_port = self.config_reader.get_server_port_ip(server_id, self.servers)
         return_value = None
-        print list_of_changes
         try:
             connection = rpyc.connect(server_ip, server_port, config = {"allow_public_attrs" : True})
             return_value = connection.root.config_changeRPC(list_of_config_changes =list_of_changes, client_id=self.client_id)
@@ -61,7 +62,6 @@ class Client(object):
         for config in list_of_changes:
             if config[0] == "ADD":
                 self.servers.append((config[1],config[2],int(config[3])))
-        print self.servers
 
     def start_console(self):
 
