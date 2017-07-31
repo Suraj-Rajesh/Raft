@@ -1,2 +1,2 @@
 # Raft
-Implementation of Raft, a distributed consensus algorithm for managing a replicated log.
+Implementation of Raft, a distributed consensus algorithm for managing replicated log.
