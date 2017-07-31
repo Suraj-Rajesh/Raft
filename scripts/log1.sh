@@ -1,1 +1,0 @@
-less +F /home/sharath/Raft/log/raft_node.log
